@@ -54,3 +54,22 @@ export type Report = {
   submitted_at: string;
   submitter?: Member;
 };
+
+export type TaskComment = {
+  id: string;
+  task_id: string;
+  author_id: string | null;
+  content: string;
+  created_at: string;
+  author?: Member;
+};
+
+export type Message = {
+  id: string;
+  sender_id: string | null;
+  receiver_id: string | null;
+  content: string;
+  created_at: string;
+  sender?: Member;
+  receiver?: Member;
+};

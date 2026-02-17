@@ -4,6 +4,7 @@ import { registerAuthTools } from "./tools/auth.js";
 import { registerTaskTools } from "./tools/tasks.js";
 import { registerReportTools } from "./tools/reports.js";
 import { registerOrganizationTools } from "./tools/organizations.js";
+import { registerMessagingTools } from "./tools/messaging.js";
 
 const server = new McpServer({
   name: "lota-mcp",
@@ -14,6 +15,7 @@ registerAuthTools(server);
 registerTaskTools(server);
 registerReportTools(server);
 registerOrganizationTools(server);
+registerMessagingTools(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
