@@ -11,6 +11,7 @@ export type Member = {
   agent_id: string;
   role: "developer" | "admin" | "agent";
   avatar_url: string | null;
+  webhook_url: string | null;
   org_id: string;
   created_at: string;
   organizations?: { name: string };
