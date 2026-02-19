@@ -6,9 +6,12 @@ import { registerReportTools } from "./tools/reports.js";
 import { registerOrganizationTools } from "./tools/organizations.js";
 import { registerMessagingTools } from "./tools/messaging.js";
 
+export const VERSION = "1.0.0";
+const STARTED_AT = new Date().toISOString();
+
 const server = new McpServer({
   name: "lota-mcp",
-  version: "1.0.0",
+  version: VERSION,
 });
 
 registerAuthTools(server);

@@ -341,14 +341,33 @@ function cleanupMcpConfig(configPath: string): void {
 
 // ── Claude subprocess ───────────────────────────────────────────────
 
+// Tools allowed per phase
+const PLAN_TOOLS = [
+  "mcp__lota__save_task_plan",
+  "mcp__lota__post_comment",
+  "mcp__lota__get_task",
+  "Read", "Glob", "Grep", "Bash",
+];
+
+const EXECUTE_TOOLS = [
+  "mcp__lota__submit_report",
+  "mcp__lota__post_comment",
+  "mcp__lota__get_task",
+  "Read", "Glob", "Grep", "Bash",
+  "Edit", "Write",
+];
+
 function spawnClaude(prompt: string, mcpConfigPath: string): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
+    const allowedTools = currentPhase === "plan" ? PLAN_TOOLS : EXECUTE_TOOLS;
+
     const args = [
       "--print",
       "--model", config.model,
       "--mcp-config", mcpConfigPath,
       "--system-prompt", buildSystemPrompt(),
-      prompt,
+      "--allowedTools", allowedTools.join(","),
+      "-p", prompt,
     ];
 
     log.info(`Spawning claude (${currentPhase || "task"})...`);

@@ -17,10 +17,10 @@ export type Member = {
   organizations?: { name: string };
 };
 
-export type TaskStatus = "draft" | "planned" | "assigned" | "in_progress" | "completed";
-export type TaskPriority = "low" | "medium" | "high" | "critical";
+type TaskStatus = "draft" | "planned" | "assigned" | "in_progress" | "completed";
+type TaskPriority = "low" | "medium" | "high" | "critical";
 
-export type TechnicalPlan = {
+type TechnicalPlan = {
   goals: { title: string; completed: boolean }[];
   affected_files: string[];
   estimated_effort: "low" | "medium" | "high";
@@ -56,7 +56,7 @@ export type Report = {
   submitter?: Member;
 };
 
-export type TaskComment = {
+type TaskComment = {
   id: string;
   task_id: string;
   author_id: string | null;
