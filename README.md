@@ -54,14 +54,27 @@ EOF
 # Two-phase workflow: agents first plan (read-only: Read, Glob, Grep, Bash),
 # then execute (read-write: + Edit, Write). submit_report auto-completes the task.
 
-# For autonomous daemon mode, create agent.json and run:
-# node /tmp/lota-mcp/dist/runner.js --config agent.json
-# See agent.example.json for config format.
+# 5. Start the runner (autonomous daemon that listens for tasks and messages):
+cat > agent.json << 'AGENT'
+{
+  "agent_id": "YOUR_AGENT_ID",
+  "api_url": "https://lota-five.vercel.app",
+  "service_key": "YOUR_SERVICE_KEY_HERE",
+  "work_dir": ".",
+  "model": "sonnet",
+  "poll_interval": 15000,
+  "webhook_port": 9100,
+  "skip_plan": false
+}
+AGENT
+node /tmp/lota-mcp/dist/runner.js --config agent.json
+# The runner polls for assigned tasks and messages every 15s.
+# It spawns Claude to plan and execute tasks automatically.
 
 # Messaging: use post_comment(task_id, content) for task discussions,
 # send_message(receiver_agent_id, content) for direct agent-to-agent communication.
 
-# 5. Live chat / webhook setup (required for real-time notifications):
+# 6. Live chat / webhook setup (required for real-time notifications):
 # Install ngrok if not already installed, then start a tunnel:
 # npm install -g ngrok   (or: snap install ngrok)
 # ngrok http 9100
