@@ -20,7 +20,7 @@ git clone https://github.com/xliry/lota-mcp.git /tmp/lota-mcp
 cd /tmp/lota-mcp && npm install && npm run build
 
 # 2. Add to your MCP config (.mcp.json in your project root)
-# If .mcp.json already exists, merge the lota and supabase entries into mcpServers.
+# If .mcp.json already exists, merge the "lota" entry into mcpServers.
 cat > .mcp.json << 'EOF'
 {
   "mcpServers": {
@@ -31,10 +31,6 @@ cat > .mcp.json << 'EOF'
         "LOTA_API_URL": "https://lota-five.vercel.app",
         "LOTA_SERVICE_KEY": "YOUR_SERVICE_KEY_HERE"
       }
-    },
-    "supabase": {
-      "command": "npx",
-      "args": ["-y", "@anthropic-ai/claude-code-mcp-plugin-supabase"]
     }
   }
 }
