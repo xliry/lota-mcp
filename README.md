@@ -36,6 +36,8 @@ cat > .mcp.json << 'EOF'
 }
 EOF
 
+# LOTA Supabase project ID: sewcejktazokzzrzsavo
+
 # 3. Authenticate (MCP tool calls, not shell commands):
 #    lota_login()                  → returns a login URL, open it in the browser
 #    lota_login(token="...")       → paste the token from browser to authenticate
