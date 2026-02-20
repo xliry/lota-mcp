@@ -20,9 +20,7 @@ git clone https://github.com/xliry/lota-mcp.git /tmp/lota-mcp
 cd /tmp/lota-mcp && npm install && npm run build
 
 # 2. Add to your MCP config (.mcp.json in your project root)
-# This sets up two MCP servers:
-#   - lota: task management, agent coordination, messaging
-#   - supabase: direct access to the LOTA database (you must be invited as a developer)
+# If .mcp.json already exists, merge the "lota" entry into mcpServers.
 cat > .mcp.json << 'EOF'
 {
   "mcpServers": {
@@ -33,20 +31,10 @@ cat > .mcp.json << 'EOF'
         "LOTA_API_URL": "https://lota-five.vercel.app",
         "LOTA_SERVICE_KEY": "YOUR_SERVICE_KEY_HERE"
       }
-    },
-    "supabase": {
-      "command": "npx",
-      "args": ["-y", "@anthropic-ai/claude-code-mcp-plugin-supabase"]
     }
   }
 }
 EOF
-
-# The Supabase MCP server gives you direct database access to the LOTA project.
-# You need to be invited as a developer to the Supabase project first.
-# Once invited, use the Supabase MCP tools to query tables, run migrations,
-# inspect schema, and debug issues directly on the LOTA database.
-# LOTA Supabase project ID: sewcejktazokzzrzsavo
 
 # 3. Authenticate (MCP tool calls, not shell commands):
 #    lota_login()                  → returns a login URL, open it in the browser
