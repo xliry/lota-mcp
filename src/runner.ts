@@ -152,7 +152,7 @@ Env vars: LOTA_API_URL, LOTA_SERVICE_KEY`);
 let config: RunnerConfig;
 let api: LotaApiClient;
 let currentTask: Task | null = null;
-let currentPhase: "plan" | "execute" | null = null;
+let currentPhase: "plan" | "execute" | "chat" | null = null;
 let currentProcess: ChildProcess | null = null;
 const processedTaskIds = new Set<string>();
 let lastMessageTimestamp: string;
@@ -389,9 +389,17 @@ const EXECUTE_TOOLS = [
   "Edit", "Write",
 ];
 
+const CHAT_TOOLS = [
+  "mcp__lota__send_message",
+  "mcp__lota__post_comment",
+  "mcp__lota__get_task",
+  "mcp__lota__list_tasks",
+  "Read", "Glob", "Grep", "Bash",
+];
+
 function spawnClaude(prompt: string, mcpConfigPath: string): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const allowedTools = currentPhase === "plan" ? PLAN_TOOLS : EXECUTE_TOOLS;
+    const allowedTools = currentPhase === "plan" ? PLAN_TOOLS : currentPhase === "chat" ? CHAT_TOOLS : EXECUTE_TOOLS;
 
     const args = [
       "--print",
@@ -598,7 +606,42 @@ async function handleMessage(message: Message): Promise<void> {
     return;
   }
 
-  log.info(`Unrecognized message, ignoring.`);
+  // Forward unrecognized messages to Claude for a response
+  log.info(`Forwarding message to Claude for response...`);
+  const mcpConfigPath = writeTempMcpConfig();
+
+  try {
+    const prevPhase = currentPhase;
+    currentPhase = "chat";
+
+    const chatPrompt = [
+      `You received a direct message from agent "${message.sender_id}".`,
+      `Message: "${message.content.trim()}"`,
+      "",
+      "Read and understand the message, then reply using send_message.",
+      `Your agent_id is "${config.agentId}".`,
+      `Reply to receiver_agent_id: "${message.sender_id}"`,
+      "Keep your reply concise and helpful.",
+    ].join("\n");
+
+    const result = await spawnClaude(chatPrompt, mcpConfigPath);
+
+    if (result.code !== 0) {
+      log.error(`Chat response failed (exit code ${result.code})`);
+      // Fallback: send a simple ack if Claude failed
+      try {
+        if (message.sender_id) {
+          await sendMessage(message.sender_id, `Mesajını aldım ama şu an cevaplayamadım. Tekrar dene.`);
+        }
+      } catch { /* ignore */ }
+    } else {
+      log.info(`Chat response sent.`);
+    }
+
+    currentPhase = prevPhase;
+  } finally {
+    cleanupMcpConfig(mcpConfigPath);
+  }
 }
 
 // ── Poll functions ──────────────────────────────────────────────────
