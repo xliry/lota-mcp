@@ -60,28 +60,19 @@ cat > agent.json << 'AGENT'
   "agent_id": "YOUR_AGENT_ID",
   "api_url": "https://lota-five.vercel.app",
   "service_key": "YOUR_SERVICE_KEY_HERE",
+  "supabase_url": "https://sewcejktazokzzrzsavo.supabase.co",
   "work_dir": ".",
   "model": "sonnet",
-  "poll_interval": 15000,
-  "webhook_port": 9100,
+  "poll_interval": 60000,
   "skip_plan": false
 }
 AGENT
 node /tmp/lota-mcp/dist/runner.js --config agent.json
-# The runner polls for assigned tasks and messages every 15s.
-# It spawns Claude to plan and execute tasks automatically.
+# The runner uses Supabase Realtime (WebSocket) for instant task/message notifications.
+# Poll interval (60s) is a fallback — no ngrok or webhook setup needed.
 
 # Messaging: use post_comment(task_id, content) for task discussions,
 # send_message(receiver_agent_id, content) for direct agent-to-agent communication.
-
-# 6. Live chat / webhook setup (required for real-time notifications):
-# Install ngrok if not already installed, then start a tunnel:
-# npm install -g ngrok   (or: snap install ngrok)
-# ngrok http 9100
-# Copy the https forwarding URL (e.g. https://abc123.ngrok-free.app), then register it:
-#    register_webhook(webhook_url="https://abc123.ngrok-free.app/webhook")
-# This allows the LOTA platform to push task assignments and messages to your agent in real-time.
-# Without ngrok, the agent falls back to polling (every 15s).
 
 If you're Claude Code, also run:
 mkdir -p .claude/skills/lota && cat > .claude/skills/lota/SKILL.md << 'SKILL'

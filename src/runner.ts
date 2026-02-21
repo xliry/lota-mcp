@@ -1,7 +1,8 @@
+#!/usr/bin/env node
 import { spawn, type ChildProcess } from "node:child_process";
-import { createServer, type Server } from "node:http";
 import { writeFileSync, readFileSync, unlinkSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createClient, type RealtimeChannel } from "@supabase/supabase-js";
 import { LotaApiClient } from "./api.js";
 import type { Task, Message } from "./types.js";
 
@@ -26,9 +27,7 @@ interface RunnerConfig {
   model: string;
   apiUrl: string;
   serviceKey: string;
-  webhookPort: number;
-  webhookHost: string;
-  publicUrl: string;
+  supabaseUrl: string;
   skipPlan: boolean;
   mcpServerPath: string;
 }
@@ -40,9 +39,7 @@ interface ConfigFile {
   work_dir?: string;
   model?: string;
   poll_interval?: number;
-  webhook_port?: number;
-  webhook_host?: string;
-  public_url?: string;
+  supabase_url?: string;
   skip_plan?: boolean;
   mcp_server_path?: string;
 }
@@ -51,12 +48,10 @@ function parseArgs(): RunnerConfig {
   const args = process.argv.slice(2);
   let configFile = "";
   let agentId = "";
-  let pollInterval = 15000;
+  let pollInterval = 60000;
   let workDir = process.cwd();
   let model = "sonnet";
-  let webhookPort = 9100;
-  let webhookHost = "0.0.0.0";
-  let publicUrl = "";
+  let supabaseUrl = "";
   let skipPlan = false;
   let mcpServerPath = "";
 
@@ -80,9 +75,7 @@ function parseArgs(): RunnerConfig {
       if (cfg.work_dir) workDir = resolve(cfg.work_dir);
       if (cfg.model) model = cfg.model;
       if (cfg.poll_interval) pollInterval = cfg.poll_interval;
-      if (cfg.webhook_port) webhookPort = cfg.webhook_port;
-      if (cfg.webhook_host) webhookHost = cfg.webhook_host;
-      if (cfg.public_url) publicUrl = cfg.public_url;
+      if (cfg.supabase_url) supabaseUrl = cfg.supabase_url;
       if (cfg.skip_plan) skipPlan = cfg.skip_plan;
       if (cfg.mcp_server_path) mcpServerPath = cfg.mcp_server_path;
     } catch (e) {
@@ -106,14 +99,8 @@ function parseArgs(): RunnerConfig {
       case "--model":
         model = args[++i];
         break;
-      case "--webhook-port":
-        webhookPort = parseInt(args[++i], 10);
-        break;
-      case "--webhook-host":
-        webhookHost = args[++i];
-        break;
-      case "--public-url":
-        publicUrl = args[++i];
+      case "--supabase-url":
+        supabaseUrl = args[++i];
         break;
       case "--skip-plan":
         skipPlan = true;
@@ -136,10 +123,8 @@ Options:
   --agent-id <id>        Agent ID
   --work-dir <path>      Working directory (default: cwd)
   --model <model>        Claude model (default: sonnet)
-  --poll-interval <ms>   Poll interval (default: 15000)
-  --webhook-port <port>  Webhook port (default: 9100)
-  --webhook-host <host>  Webhook host (default: 0.0.0.0)
-  --public-url <url>     Public webhook URL
+  --poll-interval <ms>   Poll interval (default: 60000)
+  --supabase-url <url>   Supabase project URL
   --skip-plan            Skip planning phase, go straight to execution
 
 Env vars: LOTA_API_URL, LOTA_SERVICE_KEY`);
@@ -150,12 +135,16 @@ Env vars: LOTA_API_URL, LOTA_SERVICE_KEY`);
     process.exit(1);
   }
 
+  if (!supabaseUrl) {
+    supabaseUrl = "https://sewcejktazokzzrzsavo.supabase.co";
+  }
+
   // Default mcp_server_path to dist/index.js relative to this package
   if (!mcpServerPath) {
     mcpServerPath = join(import.meta.dirname, "index.js");
   }
 
-  return { agentId, pollInterval, workDir, model, apiUrl, serviceKey, webhookPort, webhookHost, publicUrl, skipPlan, mcpServerPath };
+  return { agentId, pollInterval, workDir, model, apiUrl, serviceKey, supabaseUrl, skipPlan, mcpServerPath };
 }
 
 // ── State ───────────────────────────────────────────────────────────
@@ -168,7 +157,7 @@ let currentProcess: ChildProcess | null = null;
 const processedTaskIds = new Set<string>();
 let lastMessageTimestamp: string;
 let shuttingDown = false;
-let webhookServer: Server | null = null;
+let realtimeChannel: RealtimeChannel | null = null;
 let sleepResolve: (() => void) | null = null;
 
 // ── API helpers ─────────────────────────────────────────────────────
@@ -217,6 +206,49 @@ async function sendMessage(receiverId: string, content: string): Promise<void> {
     receiver_agent_id: receiverId,
     content,
   });
+}
+
+// ── Member UUID resolution ──────────────────────────────────────────
+
+async function resolveMemberUuid(): Promise<string> {
+  const members = await api.get<{ id: string; agent_id: string }[]>("/api/members");
+  const member = members.find(m => m.agent_id === config.agentId);
+  if (!member) throw new Error(`Member not found for agent_id: ${config.agentId}`);
+  return member.id;
+}
+
+// ── Supabase Realtime ───────────────────────────────────────────────
+
+function startRealtime(supabaseUrl: string, serviceKey: string, memberUuid: string): void {
+  const supabase = createClient(supabaseUrl, serviceKey);
+
+  realtimeChannel = supabase
+    .channel("agent-events")
+    .on("postgres_changes", {
+      event: "UPDATE",
+      schema: "public",
+      table: "tasks",
+      filter: `assigned_to=eq.${memberUuid}`,
+    }, (payload) => {
+      const task = payload.new as { id: string; status: string };
+      if (task.status === "assigned" && !processedTaskIds.has(task.id)) {
+        log.info(`Realtime: Task assigned -> ${task.id}`);
+        wakeUp();
+      }
+    })
+    .on("postgres_changes", {
+      event: "INSERT",
+      schema: "public",
+      table: "messages",
+      filter: `receiver_id=eq.${memberUuid}`,
+    }, (payload) => {
+      const msg = payload.new as { sender_id: string };
+      log.info(`Realtime: New message from ${msg.sender_id}`);
+      wakeUp();
+    })
+    .subscribe((status) => {
+      log.info(`Realtime subscription: ${status}`);
+    });
 }
 
 // ── Prompt builders ─────────────────────────────────────────────────
@@ -614,9 +646,10 @@ function setupShutdownHandlers(): void {
     shuttingDown = true;
     log.info(`Received ${signal}, shutting down...`);
 
-    if (webhookServer) {
-      webhookServer.close();
-      webhookServer = null;
+    if (realtimeChannel) {
+      realtimeChannel.unsubscribe();
+      realtimeChannel = null;
+      log.info("Realtime unsubscribed.");
     }
 
     wakeUp();
@@ -664,16 +697,15 @@ async function main(): Promise<void> {
   setupShutdownHandlers();
 
   log.info("╔══════════════════════════════════════╗");
-  log.info("║       LOTA Agent Runner v2.0         ║");
+  log.info("║       LOTA Agent Runner v3.0         ║");
   log.info("╚══════════════════════════════════════╝");
   log.info(`Agent:     ${config.agentId}`);
   log.info(`API:       ${config.apiUrl}`);
+  log.info(`Supabase:  ${config.supabaseUrl}`);
   log.info(`Work dir:  ${config.workDir}`);
   log.info(`Model:     ${config.model}`);
-  log.info(`Poll:      ${config.pollInterval}ms`);
+  log.info(`Poll:      ${config.pollInterval}ms (fallback)`);
   log.info(`Planning:  ${config.skipPlan ? "disabled" : "enabled"}`);
-  log.info(`Webhook:   ${config.webhookHost}:${config.webhookPort}`);
-  if (config.publicUrl) log.info(`Public:    ${config.publicUrl}`);
   log.info("");
 
   // Verify connectivity
@@ -685,12 +717,20 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Start webhook server
-  webhookServer = startWebhookServer(config.webhookHost, config.webhookPort);
+  // Resolve member UUID for Realtime filters
+  let memberUuid: string;
+  try {
+    memberUuid = await resolveMemberUuid();
+    log.info(`Resolved member UUID: ${memberUuid}`);
+  } catch (e) {
+    log.error(`Failed to resolve member UUID: ${(e as Error).message}`);
+    log.warn("Continuing without Realtime (poll-only mode).");
+    memberUuid = "";
+  }
 
-  // Register webhook URL if public URL is provided
-  if (config.publicUrl) {
-    await registerWebhookUrl(config.publicUrl);
+  // Start Supabase Realtime subscription
+  if (memberUuid) {
+    startRealtime(config.supabaseUrl, config.serviceKey, memberUuid);
   }
 
   // Main loop
@@ -716,55 +756,6 @@ function wakeUp(): void {
     const resolve = sleepResolve;
     sleepResolve = null;
     resolve();
-  }
-}
-
-// ── Webhook server ─────────────────────────────────────────────────
-
-function startWebhookServer(host: string, port: number): Server {
-  const server = createServer((req, res) => {
-    if (req.method === "POST" && req.url === "/webhook") {
-      let body = "";
-      req.on("data", (chunk: Buffer) => { body += chunk.toString(); });
-      req.on("end", () => {
-        try {
-          const payload = JSON.parse(body);
-          log.info(`Webhook received: ${payload.event}${payload.task_id ? ` (task: ${payload.task_id})` : ""}${payload.message_id ? ` (message: ${payload.message_id})` : ""}`);
-        } catch {
-          log.info("Webhook received (unparseable payload)");
-        }
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
-        wakeUp();
-      });
-    } else if (req.method === "GET" && req.url === "/health") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        status: "ok",
-        agent: config.agentId,
-        busy: !!currentTask,
-        phase: currentPhase,
-      }));
-    } else {
-      res.writeHead(404);
-      res.end();
-    }
-  });
-
-  server.listen(port, host, () => {
-    log.info(`Webhook server listening on ${host}:${port}`);
-  });
-
-  return server;
-}
-
-async function registerWebhookUrl(publicUrl: string): Promise<void> {
-  const webhookUrl = publicUrl.replace(/\/$/, "") + "/webhook";
-  try {
-    await api.patch(`/api/members/${config.agentId}/webhook`, { webhook_url: webhookUrl });
-    log.info(`Registered webhook URL: ${webhookUrl}`);
-  } catch (e) {
-    log.error(`Failed to register webhook URL: ${(e as Error).message}`);
   }
 }
 

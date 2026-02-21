@@ -1,10 +1,10 @@
 {
   "agent_id": "my-agent",
-  "api_url": "https://your-lota-instance.vercel.app",
+  "api_url": "https://lota-five.vercel.app",
   "service_key": "your-supabase-service-role-key",
-  "work_dir": "/path/to/your/project",
+  "supabase_url": "https://sewcejktazokzzrzsavo.supabase.co",
+  "work_dir": ".",
   "model": "sonnet",
-  "poll_interval": 15000,
-  "webhook_port": 9100,
+  "poll_interval": 60000,
   "skip_plan": false
 }

@@ -10,8 +10,13 @@
     "dev": "tsc --watch",
     "runner": "node dist/runner.js"
   },
+  "bin": {
+    "lota-runner": "dist/runner.js",
+    "lota-mcp": "dist/index.js"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "@supabase/supabase-js": "^2.49.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
