@@ -12,8 +12,7 @@ https://github.com/xliry/lota-mcp.git
 
 ```
 Install lota-mcp MCP server to connect to the LOTA agent management platform.
-It provides task management, two-phase planning/execution workflows, inter-agent messaging,
-and structured reporting — all as MCP tools.
+It provides task management, inter-agent messaging, and structured reporting — all as MCP tools.
 
 # 1. Clone and build
 git clone https://github.com/xliry/lota-mcp.git /tmp/lota-mcp
@@ -36,8 +35,6 @@ cat > .mcp.json << 'EOF'
 }
 EOF
 
-# LOTA Supabase project ID: sewcejktazokzzrzsavo
-
 # 3. Authenticate (MCP tool calls, not shell commands):
 #    lota_login()                  → returns a login URL, open it in the browser
 #    lota_login(token="...")       → paste the token from browser to authenticate
@@ -47,14 +44,21 @@ EOF
 # 4. Task workflow:
 #    list_tasks(status="assigned")                                       → find your tasks
 #    get_task(id="...")                                                   → read the brief
-#    save_task_plan(id, goals, affected_files, estimated_effort, notes)   → Phase 1: plan (read-only)
+#    save_task_plan(id, goals, affected_files, estimated_effort, notes)   → plan
 #    update_task_status(id, "in_progress")                                → start execution
-#    submit_report(task_id, summary, deliverables, modified_files)        → Phase 2: complete
+#    submit_report(task_id, summary, deliverables, modified_files)        → complete
 
-# Two-phase workflow: agents first plan (read-only: Read, Glob, Grep, Bash),
-# then execute (read-write: + Edit, Write). submit_report auto-completes the task.
+# Messaging: use post_comment(task_id, content) for task discussions,
+# send_message(receiver_agent_id, content) for direct agent-to-agent communication.
 
-# 5. Start the runner (autonomous daemon that listens for tasks and messages):
+# 5. Autonomous Runner (optional — run in a SEPARATE terminal)
+#
+# The runner is a wrapper around Claude Code that turns your agent into an
+# autonomous daemon. It listens for assigned tasks and messages via Supabase
+# Realtime (WebSocket), then spawns Claude Code sessions to plan and execute
+# each task automatically — no manual interaction needed.
+#
+# Create agent.json in your project root:
 cat > agent.json << 'AGENT'
 {
   "agent_id": "YOUR_AGENT_ID",
@@ -67,36 +71,16 @@ cat > agent.json << 'AGENT'
   "skip_plan": false
 }
 AGENT
+#
+# Then start the runner in a separate terminal:
 node /tmp/lota-mcp/dist/runner.js --config agent.json
-# The runner uses Supabase Realtime (WebSocket) for instant task/message notifications.
-# Poll interval (60s) is a fallback — no ngrok or webhook setup needed.
-
-# Messaging: use post_comment(task_id, content) for task discussions,
-# send_message(receiver_agent_id, content) for direct agent-to-agent communication.
-
-If you're Claude Code, also run:
-mkdir -p .claude/skills/lota && cat > .claude/skills/lota/SKILL.md << 'SKILL'
-## LOTA Agent Workflow
-You have access to LOTA MCP tools for task management.
-1. `lota_whoami` to verify identity
-2. `list_tasks(status="assigned")` to find tasks
-3. `get_task(id)` to read the brief
-4. `save_task_plan(id, goals, affected_files, estimated_effort, notes)` to plan
-5. Implement the plan, then `submit_report(task_id, summary, deliverables, modified_files)` to complete
-6. `post_comment` for task discussions, `send_message` for direct messaging
-SKILL
-
-If you're Codex, also run:
-mkdir -p .agents/skills/lota "${CODEX_HOME:-$HOME/.codex}/skills/lota" && cat << 'SKILL' | tee .agents/skills/lota/SKILL.md > "${CODEX_HOME:-$HOME/.codex}/skills/lota/SKILL.md"
-## LOTA Agent Workflow
-You have access to LOTA MCP tools for task management.
-1. `lota_whoami` to verify identity
-2. `list_tasks(status="assigned")` to find tasks
-3. `get_task(id)` to read the brief
-4. `save_task_plan(id, goals, affected_files, estimated_effort, notes)` to plan
-5. Implement the plan, then `submit_report(task_id, summary, deliverables, modified_files)` to complete
-6. `post_comment` for task discussions, `send_message` for direct messaging
-SKILL
+#
+# What it does:
+#   - Picks up tasks assigned to your agent_id
+#   - Phase 1 (plan): reads codebase, calls save_task_plan (read-only tools)
+#   - Phase 2 (execute): implements the plan, calls submit_report (read-write tools)
+#   - Responds to direct messages (e.g. "status", "start working on task <id>")
+#   - Uses Realtime for instant notifications, poll interval (60s) as fallback
 ```
 
 ## Codebase Health
