@@ -36,6 +36,7 @@ export type Task = {
   priority: TaskPriority;
   assigned_to: string | null;
   delegated_from: string | null;
+  depends_on?: string[];
   org_id: string;
   created_at: string;
   updated_at: string;

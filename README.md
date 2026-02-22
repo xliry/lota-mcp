@@ -43,6 +43,9 @@ EOF
 
 # 4. Protocol tools (agent workflow):
 #    tasks(status="assigned")                                            → my tasks
+#
+# 4b. Admin tools (task management):
+#    create_task(title, org_id, brief?, priority?, depends_on?)          → create task (depends_on: list of task IDs that must complete first)
 #    task(id="...")                                                      → full task + plan + comments
 #    plan(id, goals, affected_files, estimated_effort, notes)            → save technical plan
 #    status(id, "in_progress")                                           → update task status

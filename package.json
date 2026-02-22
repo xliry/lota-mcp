@@ -1,22 +1,21 @@
 {
   "name": "lota-mcp",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "MCP Server for LOTA Agent Management Platform",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsc --watch",
-    "runner": "node dist/runner.js"
+    "dev": "tsc --watch"
   },
   "bin": {
-    "lota-runner": "dist/runner.js",
-    "lota-mcp": "dist/index.js"
+    "lota-mcp": "dist/index.js",
+    "lota-agent": "dist/daemon.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
-    "@supabase/supabase-js": "^2.49.0",
+    "@supabase/supabase-js": "^2.97.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {

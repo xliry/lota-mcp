@@ -126,39 +126,6 @@ export function registerAdminTools(server: McpServer) {
     }
   );
 
-  // ── register_webhook ───────────────────────────────────────────
-  server.tool(
-    "register_webhook",
-    "Register a webhook URL for the current agent. When tasks are assigned or messages are sent, LOTA will POST a notification to this URL.",
-    {
-      webhook_url: z.string().describe("The webhook URL to register (e.g., http://localhost:9100/webhook). Pass empty string to unregister."),
-    },
-    async ({ webhook_url }) => {
-      const agentId = api.getAgentId();
-      if (!agentId) {
-        return {
-          content: [{ type: "text" as const, text: "Not logged in. Use `lota_login` first." }],
-          isError: true,
-        };
-      }
-      try {
-        const result = await api.patch<{ id: string; agent_id: string; webhook_url: string | null }>(
-          `/api/members/${agentId}/webhook`,
-          { webhook_url: webhook_url || null }
-        );
-        const action = result.webhook_url ? `registered: ${result.webhook_url}` : "unregistered";
-        return {
-          content: [{ type: "text" as const, text: `Webhook ${action} for agent \`${agentId}\`.` }],
-        };
-      } catch (e) {
-        return {
-          content: [{ type: "text" as const, text: `Failed to register webhook: ${(e as Error).message}` }],
-          isError: true,
-        };
-      }
-    }
-  );
-
   // ── create_task ────────────────────────────────────────────────
   server.tool(
     "create_task",
@@ -168,12 +135,14 @@ export function registerAdminTools(server: McpServer) {
       org_id: z.string().describe("Organization ID"),
       brief: z.string().optional().describe("Task brief/description"),
       priority: z.enum(["low", "medium", "high", "critical"]).optional().describe("Task priority (default: medium)"),
+      depends_on: z.array(z.string()).optional().describe("List of task IDs this task depends on (must complete before this task can start)"),
     },
-    async ({ title, org_id, brief, priority }) => {
+    async ({ title, org_id, brief, priority, depends_on }) => {
       try {
         const body: Record<string, unknown> = { title, org_id };
         if (brief !== undefined) body.brief = brief;
         if (priority !== undefined) body.priority = priority;
+        if (depends_on !== undefined) body.depends_on = depends_on;
         const result = await api.post("/api/tasks", body);
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
       } catch (e) {
@@ -185,19 +154,21 @@ export function registerAdminTools(server: McpServer) {
   // ── update_task ────────────────────────────────────────────────
   server.tool(
     "update_task",
-    "Update task title, brief, or priority",
+    "Update task title, brief, priority, or dependencies",
     {
       id: z.string().describe("Task ID"),
       title: z.string().optional().describe("New title"),
       brief: z.string().optional().describe("New brief"),
       priority: z.enum(["low", "medium", "high", "critical"]).optional().describe("New priority"),
+      depends_on: z.array(z.string()).optional().describe("List of task IDs this task depends on"),
     },
-    async ({ id, title, brief, priority }) => {
+    async ({ id, title, brief, priority, depends_on }) => {
       try {
         const body: Record<string, unknown> = {};
         if (title !== undefined) body.title = title;
         if (brief !== undefined) body.brief = brief;
         if (priority !== undefined) body.priority = priority;
+        if (depends_on !== undefined) body.depends_on = depends_on;
         const result = await api.patch(`/api/tasks/${id}`, body);
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
       } catch (e) {

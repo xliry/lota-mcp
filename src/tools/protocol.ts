@@ -89,13 +89,33 @@ export function registerProtocolTools(server: McpServer) {
     async ({ id }) => {
       try {
         const [task, comments] = await Promise.all([
-          api.get(`/api/tasks/${id}`),
+          api.get<Record<string, unknown>>(`/api/tasks/${id}`),
           api.get(`/api/tasks/${id}/comments`),
         ]);
+
+        // Resolve dependency status
+        const dependsOn = (task.depends_on as string[] | undefined) || [];
+        let dependencies: { id: string; title: string; status: string }[] | undefined;
+        if (dependsOn.length > 0) {
+          dependencies = await Promise.all(
+            dependsOn.map(async (depId) => {
+              try {
+                const dep = await api.get<{ id: string; title: string; status: string }>(`/api/tasks/${depId}`);
+                return { id: dep.id, title: dep.title, status: dep.status };
+              } catch {
+                return { id: depId, title: "(unknown)", status: "unknown" };
+              }
+            })
+          );
+        }
+
+        const result: Record<string, unknown> = { ...task, comments };
+        if (dependencies) result.dependencies = dependencies;
+
         return {
           content: [{
             type: "text" as const,
-            text: JSON.stringify({ ...task as object, comments }, null, 2),
+            text: JSON.stringify(result, null, 2),
           }],
         };
       } catch (e) {
