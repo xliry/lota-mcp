@@ -1,129 +1,23 @@
-export class LotaApiClient {
-  private baseUrl: string;
-  private serviceKey: string;
-  private agentId: string | undefined;
-  private authToken: string | undefined;
+const BASE_URL = process.env.LOTA_API_URL || "http://localhost:3000";
+const SERVICE_KEY = process.env.LOTA_SERVICE_KEY || "";
+const AGENT_ID = process.env.LOTA_AGENT_ID || "";
 
-  constructor() {
-    this.baseUrl = process.env.LOTA_API_URL || "http://localhost:3000";
-    this.serviceKey = process.env.LOTA_SERVICE_KEY || "";
-    this.agentId = process.env.LOTA_AGENT_ID;
-  }
+export async function lota(method: string, path: string, body?: unknown): Promise<unknown> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (SERVICE_KEY) headers["x-service-key"] = SERVICE_KEY;
+  if (AGENT_ID) headers["x-agent-id"] = AGENT_ID;
 
-  getBaseUrl(): string {
-    return this.baseUrl;
-  }
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
 
-  setAuthToken(token: string) {
-    this.authToken = token;
-  }
+  const text = await res.text();
+  if (!res.ok) throw new Error(`${method} ${path} → ${res.status}: ${text}`);
 
-  getAuthToken(): string | undefined {
-    return this.authToken;
-  }
-
-  setAgentId(agentId: string) {
-    this.agentId = agentId;
-  }
-
-  getAgentId(): string | undefined {
-    return this.agentId;
-  }
-
-  isAuthenticated(): boolean {
-    return !!this.authToken;
-  }
-
-  private getHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (this.authToken) {
-      headers["Authorization"] = `Bearer ${this.authToken}`;
-    }
-    if (this.serviceKey) {
-      headers["x-service-key"] = this.serviceKey;
-    }
-    if (this.agentId) {
-      headers["x-agent-id"] = this.agentId;
-    }
-    return headers;
-  }
-
-  async get<T = unknown>(path: string, params?: Record<string, string>): Promise<T> {
-    const url = new URL(path, this.baseUrl);
-    if (params) {
-      for (const [key, value] of Object.entries(params)) {
-        if (value !== undefined && value !== "") {
-          url.searchParams.set(key, value);
-        }
-      }
-    }
-    const res = await fetch(url.toString(), {
-      method: "GET",
-      headers: this.getHeaders(),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`GET ${path} failed (${res.status}): ${text}`);
-    }
-    return res.json() as Promise<T>;
-  }
-
-  async post<T = unknown>(path: string, body?: unknown): Promise<T> {
-    const url = new URL(path, this.baseUrl);
-    const res = await fetch(url.toString(), {
-      method: "POST",
-      headers: this.getHeaders(),
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`POST ${path} failed (${res.status}): ${text}`);
-    }
-    return res.json() as Promise<T>;
-  }
-
-  async patch<T = unknown>(path: string, body?: unknown): Promise<T> {
-    const url = new URL(path, this.baseUrl);
-    const res = await fetch(url.toString(), {
-      method: "PATCH",
-      headers: this.getHeaders(),
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`PATCH ${path} failed (${res.status}): ${text}`);
-    }
-    return res.json() as Promise<T>;
-  }
-
-  async put<T = unknown>(path: string, body?: unknown): Promise<T> {
-    const url = new URL(path, this.baseUrl);
-    const res = await fetch(url.toString(), {
-      method: "PUT",
-      headers: this.getHeaders(),
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`PUT ${path} failed (${res.status}): ${text}`);
-    }
-    return res.json() as Promise<T>;
-  }
-
-  async delete<T = unknown>(path: string): Promise<T> {
-    const url = new URL(path, this.baseUrl);
-    const res = await fetch(url.toString(), {
-      method: "DELETE",
-      headers: this.getHeaders(),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`DELETE ${path} failed (${res.status}): ${text}`);
-    }
-    return res.json() as Promise<T>;
-  }
+  try { return JSON.parse(text); } catch { return text; }
 }
 
-export const api = new LotaApiClient();
+export function getAgentId(): string { return AGENT_ID; }
+export function getBaseUrl(): string { return BASE_URL; }

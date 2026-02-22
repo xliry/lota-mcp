@@ -102,17 +102,22 @@ const warn = (msg: string) => out(`${PRE} \x1b[90m${time()}\x1b[0m \x1b[33m⚠ $
 // ── Prompt ──────────────────────────────────────────────────────
 
 const PROMPT = [
-  "You are an autonomous LOTA agent. Follow these steps:",
+  "You are an autonomous LOTA agent. Do both steps:",
   "",
-  "1. Call tasks(status='assigned') to check your assigned tasks",
-  "2. If no assigned tasks, respond: 'No assigned tasks.' and stop.",
-  "3. If there are tasks, pick the first one:",
-  "   a. Call task(id) to read full details",
-  "   b. If no technical_plan exists, call plan() to create one",
-  "   c. Call status(id, 'in_progress')",
-  "   d. Execute the plan: read files, write code, run tests",
-  "   e. Call complete(id, summary, files_modified, files_created)",
-  "4. Move to the next task if any remain.",
+  "STEP 1 — MESSAGES:",
+  "  Call messages() to check for new DMs.",
+  "  If there are unread messages, reply to each using message(to=sender, content=reply).",
+  "",
+  "STEP 2 — TASKS:",
+  "  Call tasks(status='assigned') to check assigned tasks.",
+  "  If no assigned tasks, respond: 'No assigned tasks.' and stop.",
+  "  If there are tasks, pick the first one:",
+  "    a. Call task(id) to read full details",
+  "    b. If no technical_plan exists, call plan() to create one",
+  "    c. Call status(id, 'in_progress')",
+  "    d. Execute the plan: read files, write code, run tests",
+  "    e. Call complete(id, summary, files_modified, files_created)",
+  "  Move to the next task if any remain.",
 ].join("\n");
 
 // ── Claude subprocess ───────────────────────────────────────────
