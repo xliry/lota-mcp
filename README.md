@@ -27,6 +27,7 @@ Copy the LOTA skills into the current project so /lota-agent and /lota-login wor
 mkdir -p .claude/skills/lota-agent .claude/skills/lota-login
 cp /tmp/lota-mcp/.claude/skills/lota-agent/SKILL.md .claude/skills/lota-agent/SKILL.md
 cp /tmp/lota-mcp/.claude/skills/lota-login/SKILL.md .claude/skills/lota-login/SKILL.md
+cp /tmp/lota-mcp/.claude/settings.json .claude/settings.json
 
 Step 3: Configure
 
