@@ -2,7 +2,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, mkdirSync, appendFileSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { createClient, type RealtimeChannel } from "@supabase/supabase-js";
+import { lota } from "./github.js";
 
 
 // ── Config ──────────────────────────────────────────────────────
@@ -12,15 +12,14 @@ interface AgentConfig {
   model: string;
   interval: number;
   once: boolean;
-  agentId: string;
-  serviceKey: string;
-  apiUrl: string;
-  supabaseUrl: string;
+  agentName: string;
+  githubToken: string;
+  githubRepo: string;
 }
 
 function parseArgs(): AgentConfig {
   const args = process.argv.slice(2);
-  let interval = 60;
+  let interval = 15;
   let once = false;
   let mcpConfig = "";
   let model = "sonnet";
@@ -34,13 +33,13 @@ function parseArgs(): AgentConfig {
       case "--help": case "-h":
         console.log(`Usage: lota-agent [options]
 
-Autonomous LOTA agent with Realtime notifications.
+Autonomous LOTA agent (GitHub-backed).
 Listens for assigned tasks, plans, executes, and reports.
 
 Options:
   -c, --config <path>   MCP config file (default: .mcp.json)
   -m, --model <model>   Claude model (default: sonnet)
-  -i, --interval <sec>  Fallback poll interval in seconds (default: 60)
+  -i, --interval <sec>  Poll interval in seconds (default: 15)
   -1, --once            Run once then exit
   -h, --help            Show this help`);
         process.exit(0);
@@ -59,23 +58,23 @@ Options:
   }
 
   // Read credentials from .mcp.json
-  let agentId = "", serviceKey = "", apiUrl = "", supabaseUrl = "";
+  let githubToken = "", githubRepo = "", agentName = "";
   try {
     const cfg = JSON.parse(readFileSync(configPath, "utf-8"));
     const env = cfg.mcpServers?.lota?.env || {};
-    agentId = env.LOTA_AGENT_ID || "";
-    serviceKey = env.LOTA_SERVICE_KEY || "";
-    apiUrl = env.LOTA_API_URL || "https://lota-five.vercel.app";
-    supabaseUrl = env.LOTA_SUPABASE_URL || "https://sewcejktazokzzrzsavo.supabase.co";
+    githubToken = env.GITHUB_TOKEN || "";
+    githubRepo = env.GITHUB_REPO || "";
+    agentName = env.AGENT_NAME || "";
   } catch (e) {
     console.error(`Error reading ${configPath}: ${(e as Error).message}`);
     process.exit(1);
   }
 
-  if (!agentId) { console.error("Error: LOTA_AGENT_ID missing in .mcp.json"); process.exit(1); }
-  if (!serviceKey) { console.error("Error: LOTA_SERVICE_KEY missing in .mcp.json"); process.exit(1); }
+  if (!githubToken) { console.error("Error: GITHUB_TOKEN missing in .mcp.json"); process.exit(1); }
+  if (!githubRepo) { console.error("Error: GITHUB_REPO missing in .mcp.json"); process.exit(1); }
+  if (!agentName) { console.error("Error: AGENT_NAME missing in .mcp.json"); process.exit(1); }
 
-  return { configPath, model, interval, once, agentId, serviceKey, apiUrl, supabaseUrl };
+  return { configPath, model, interval, once, agentName, githubToken, githubRepo };
 }
 
 // ── Logging (stdout + file) ──────────────────────────────────────
@@ -102,59 +101,52 @@ const warn = (msg: string) => out(`${PRE} \x1b[90m${time()}\x1b[0m \x1b[33m⚠ $
 // ── Pre-check (zero-cost, no LLM) ──────────────────────────────
 
 interface WorkData {
-  tasks: { id: string; title?: string; brief?: string; status: string; plan?: unknown }[];
-  messages: { id: string; content: string; sender: { agent_id: string; name?: string }; created_at: string; read?: boolean }[];
+  tasks: { id: number; title: string; status: string; body?: string }[];
+  messages: unknown[];
 }
 
 async function checkForWork(config: AgentConfig): Promise<WorkData> {
-  const res = await fetch(`${config.apiUrl}/api/sync?agent=${config.agentId}`, {
-    headers: {
-      "Content-Type": "application/json",
-      "x-service-key": config.serviceKey,
-    },
-  });
+  // Set env vars so github.ts can use them
+  process.env.GITHUB_TOKEN = config.githubToken;
+  process.env.GITHUB_REPO = config.githubRepo;
+  process.env.AGENT_NAME = config.agentName;
 
-  if (!res.ok) throw new Error(`Sync API: ${res.status}`);
-  const data = await res.json() as { tasks: WorkData["tasks"]; messages: WorkData["messages"] };
+  const data = await lota("GET", "/sync") as { tasks: WorkData["tasks"]; messages: WorkData["messages"] };
   return { tasks: data.tasks || [], messages: data.messages || [] };
 }
 
 // ── Prompt ──────────────────────────────────────────────────────
 
-function buildPrompt(agentId: string, work: WorkData): string {
+function buildPrompt(agentName: string, work: WorkData): string {
   const lines = [
-    `You are autonomous LOTA agent "${agentId}". Use the lota() MCP tool for all API calls.`,
+    `You are autonomous LOTA agent "${agentName}". Use the lota() MCP tool for all API calls.`,
   ];
 
-  // Messages — data already fetched, embed in prompt
+  // Messages
   if (work.messages.length) {
     lines.push("", "── UNREAD MESSAGES ──");
-    for (const m of work.messages) {
-      lines.push(`  From agent "${m.sender.agent_id}" (${m.sender.name || "unknown"}): ${m.content}`);
+    for (const m of work.messages as Array<{ title?: string; body?: string; number?: number }>) {
+      lines.push(`  Message #${m.number}: ${m.title || "(no subject)"}`);
+      if (m.body) lines.push(`    ${m.body.slice(0, 200)}`);
     }
     lines.push(
-      `  Reply via: lota("POST", "/api/sync", {"agent_id":"${agentId}", "actions":[{"type":"message", "data":{"receiver_agent_id":"<their_agent_id>", "content":"..."}}]})`,
-      "  Use the sender's agent_id as receiver_agent_id when replying.",
+      `  Reply via: lota("POST", "/messages/<id>/reply", {"content": "..."})`,
     );
   }
 
-  // Tasks — data already fetched, embed in prompt
+  // Tasks
   if (work.tasks.length) {
     lines.push("", "── ASSIGNED TASKS ──");
     for (const t of work.tasks) {
-      lines.push(`  Task "${t.id}": ${t.title || "(untitled)"}${t.brief ? ` — ${t.brief}` : ""}`);
+      lines.push(`  Task #${t.id}: ${t.title || "(untitled)"}${t.body ? ` — ${t.body.slice(0, 100)}` : ""}`);
     }
     lines.push(
       "",
-      "  For each task: plan → execute → report using batch sync:",
-      `    lota("POST", "/api/sync", {"agent_id":"${agentId}", "actions":[`,
-      '      {"type":"plan", "task_id":"<id>", "data":{"goals":[{"title":"...","completed":false}], "affected_files":[], "estimated_effort":"low|medium|high", "notes":"..."}},',
-      '      {"type":"status", "task_id":"<id>", "data":{"status":"in_progress"}}',
-      "    ]})",
-      "    Then execute: read files, write code, run tests.",
-      `    When done: lota("POST", "/api/sync", {"agent_id":"${agentId}", "actions":[`,
-      `      {"type":"report", "task_id":"<id>", "data":{"summary":"...", "modified_files":[], "new_files":[]}}`,
-      "    ]})",
+      "  For each task:",
+      `    1. Save plan: lota("POST", "/tasks/<id>/plan", {"goals": [...], "affected_files": [], "effort": "medium"})`,
+      `    2. Set status: lota("POST", "/tasks/<id>/status", {"status": "in-progress"})`,
+      "    3. Execute: read files, write code, run tests.",
+      `    4. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
     );
   }
 
@@ -182,12 +174,17 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
       }
     }
 
+    // Set GitHub env vars for the Claude subprocess
+    cleanEnv.GITHUB_TOKEN = config.githubToken;
+    cleanEnv.GITHUB_REPO = config.githubRepo;
+    cleanEnv.AGENT_NAME = config.agentName;
+
     const child = spawn("claude", [
       "--print",
       "--dangerously-skip-permissions",
       "--model", config.model,
       "--mcp-config", config.configPath,
-      "-p", buildPrompt(config.agentId, work),
+      "-p", buildPrompt(config.agentName, work),
     ], {
       stdio: ["ignore", "pipe", "pipe"],
       cwd: process.cwd(),
@@ -235,61 +232,10 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
   });
 }
 
-// ── Realtime ────────────────────────────────────────────────────
-
-async function resolveMemberUuid(config: AgentConfig): Promise<string> {
-  const res = await fetch(`${config.apiUrl}/api/members`, {
-    headers: { "Content-Type": "application/json", "x-service-key": config.serviceKey },
-  });
-  if (!res.ok) throw new Error(`Members API: ${res.status}`);
-  const members = await res.json() as { id: string; agent_id: string }[];
-  const member = members.find(m => m.agent_id === config.agentId);
-  if (!member) throw new Error(`Agent "${config.agentId}" not found in members`);
-  return member.id;
-}
-
-function startRealtime(config: AgentConfig, memberUuid: string, onEvent: (reason: string) => void): RealtimeChannel {
-  const supabase = createClient(config.supabaseUrl, config.serviceKey);
-
-  const channel = supabase
-    .channel("agent-events")
-    .on("postgres_changes", {
-      event: "UPDATE",
-      schema: "public",
-      table: "tasks",
-      filter: `assigned_to=eq.${memberUuid}`,
-    }, (payload) => {
-      const task = payload.new as { id: string; status: string; title?: string };
-      if (task.status === "assigned") {
-        ok(`Realtime: Task assigned → ${task.title || task.id}`);
-        onEvent("task_assigned");
-      }
-    })
-    .on("postgres_changes", {
-      event: "INSERT",
-      schema: "public",
-      table: "messages",
-      filter: `receiver_id=eq.${memberUuid}`,
-    }, () => {
-      log("Realtime: New message received");
-      onEvent("new_message");
-    })
-    .subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        ok("Realtime connected — listening for events");
-      } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
-        warn(`Realtime: ${status}`);
-      }
-    });
-
-  return channel;
-}
-
 // ── Shutdown ────────────────────────────────────────────────────
 
 let stopped = false;
 let sleepResolve: (() => void) | null = null;
-let realtimeChannel: RealtimeChannel | null = null;
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
@@ -299,7 +245,6 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
     }
     stopped = true;
     log("Shutting down...");
-    realtimeChannel?.unsubscribe();
     if (currentProcess) {
       currentProcess.kill("SIGTERM");
       setTimeout(() => {
@@ -318,14 +263,6 @@ function sleep(sec: number): Promise<void> {
   });
 }
 
-function wakeUp() {
-  if (sleepResolve) {
-    const r = sleepResolve;
-    sleepResolve = null;
-    r();
-  }
-}
-
 // ── Main ────────────────────────────────────────────────────────
 
 async function main() {
@@ -336,10 +273,10 @@ async function main() {
     "  ┌─────────────────────────┐",
     "  │      LOTA Agent         │",
     "  └─────────────────────────┘",
-    `  agent:    ${config.agentId}`,
+    `  agent:    ${config.agentName}`,
     `  model:    ${config.model}`,
     `  config:   ${config.configPath}`,
-    `  interval: ${config.interval}s (fallback)`,
+    `  interval: ${config.interval}s`,
     `  log:      ${LOG_FILE}`,
     "",
   ];
@@ -348,36 +285,13 @@ async function main() {
     appendFileSync(LOG_FILE, `${line}\n`);
   }
 
-  // Connect Realtime FIRST, wait for connection before starting loop
-  let realtimeReady = false;
-  try {
-    log("Resolving member UUID...");
-    const memberUuid = await resolveMemberUuid(config);
-    ok(`Member UUID: ${memberUuid}`);
-
-    log("Connecting to Supabase Realtime...");
-    realtimeChannel = startRealtime(config, memberUuid, (reason) => {
-      log(`Wake up: ${reason}`);
-      wakeUp();
-    });
-
-    // Wait a bit for Realtime to connect
-    await new Promise<void>((r) => setTimeout(r, 2000));
-    realtimeReady = true;
-  } catch (e) {
-    warn(`Realtime unavailable: ${(e as Error).message}`);
-    warn("Running in poll-only mode.");
-  }
-
-  console.log("");
   log("━━━ Agent active, waiting for tasks ━━━");
   console.log("");
 
-  // Main loop
+  // Main loop: poll → check → spawn → sleep
   while (!stopped) {
     log("Checking for work...");
 
-    // Pre-check: fetch tasks + messages without spawning Claude
     let work: WorkData;
     try {
       work = await checkForWork(config);
@@ -392,7 +306,6 @@ async function main() {
     const msgCount = work.messages.length;
 
     if (taskCount === 0 && msgCount === 0) {
-      // Nothing to do — skip Claude spawn entirely
       dim(`No pending work (0 tasks, 0 messages) — skipped Claude spawn`);
     } else {
       ok(`Found work: ${taskCount} task(s), ${msgCount} message(s)`);
@@ -410,16 +323,8 @@ async function main() {
 
     if (config.once) break;
 
-    if (realtimeReady) {
-      dim(`Listening... (Realtime active, fallback poll in ${config.interval}s)`);
-    } else {
-      dim(`Polling in ${config.interval}s...`);
-    }
+    dim(`Polling in ${config.interval}s...`);
     await sleep(config.interval);
-  }
-
-  if (!stopped) {
-    realtimeChannel?.unsubscribe();
   }
 }
 

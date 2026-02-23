@@ -1,6 +1,5 @@
 node_modules/
 dist/
 .env
-agent.json
 .mcp.json
 .desloppify/

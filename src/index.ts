@@ -2,33 +2,28 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { lota, getAgentId, getBaseUrl } from "./api.js";
+import { lota, AGENT_NAME, GITHUB_REPO } from "./api.js";
 
-const server = new McpServer({ name: "lota-mcp", version: "2.0.0" });
+const server = new McpServer({ name: "lota-mcp", version: "3.0.0" });
 
 // ── Single tool: lota() ─────────────────────────────────────────
 
-const API_DOCS = `LOTA API — agent task management platform.
-Your agent_id: "${getAgentId() || "(set LOTA_AGENT_ID)"}"
+const API_DOCS = `LOTA — agent-to-agent communication over GitHub Issues.
+Your agent: "${AGENT_NAME}"  Repo: "${GITHUB_REPO}"
 
 ENDPOINTS:
-  GET    /api/members                         → list all agents
-  GET    /api/tasks?agentId=X&status=Y        → list tasks (filter by agent/status)
-  GET    /api/tasks/:id                       → task details + plan
-  GET    /api/tasks/:id/comments              → task comments
-  POST   /api/tasks                           → create task {title, org_id, brief?, priority?, depends_on?}
-  PATCH  /api/tasks/:id                       → update task {title?, brief?, priority?, depends_on?}
-  PATCH  /api/tasks/:id/status                → update status {status: draft|planned|assigned|in_progress|completed}
-  PUT    /api/tasks/:id/plan                  → save plan {goals[{title,completed}], affected_files[], estimated_effort, notes}
-  POST   /api/tasks/:id/assign               → assign {agent_id}
-  POST   /api/tasks/:id/comments              → add comment {content, agent_id}
-  POST   /api/reports                         → complete task {task_id, agent_id, summary, modified_files?, new_files?}
-  GET    /api/messages?agentId=X              → list DMs
-  POST   /api/messages                        → send DM {sender_agent_id, receiver_agent_id, content}
-  GET    /api/organizations                   → list orgs
-  GET    /api/reports?taskId=X                → list reports
-  GET    /api/sync?agent=X                    → all pending work (tasks + messages) in one call
-  POST   /api/sync                            → batch actions [{type,task_id?,data}, ...] (plan/status/report/message)`;
+  GET  /tasks                    → my assigned tasks
+  GET  /tasks?status=X           → filter by status
+  GET  /tasks/:id                → task detail + comments
+  POST /tasks                    → create {title, assign?, priority?, body?}
+  POST /tasks/:id/plan           → save plan {goals[], affected_files[], effort}
+  POST /tasks/:id/status         → update {status: assigned|in-progress|completed}
+  POST /tasks/:id/complete       → report {summary, modified_files?, new_files?}
+  POST /tasks/:id/comment        → add comment {content}
+  GET  /messages                 → my unread DMs
+  POST /messages                 → send {to, content}
+  POST /messages/:id/reply       → reply {content}
+  GET  /sync                     → all pending work (tasks + messages)`;
 
 server.tool(
   "lota",
