@@ -178,13 +178,20 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
     cleanEnv.GITHUB_REPO = config.githubRepo;
     cleanEnv.AGENT_NAME = config.agentName;
 
-    const child = spawn("claude", [
+    const isRoot = process.getuid?.() === 0;
+    const args = [
       "--print",
-      "--dangerously-skip-permissions",
+      ...(isRoot ? [] : ["--dangerously-skip-permissions"]),
       "--model", config.model,
       "--mcp-config", config.configPath,
       "-p", buildPrompt(config.agentName, work),
-    ], {
+    ];
+
+    if (isRoot) {
+      dim("Running as root — skipping --dangerously-skip-permissions");
+    }
+
+    const child = spawn("claude", args, {
       stdio: ["ignore", "pipe", "pipe"],
       cwd: process.cwd(),
       env: cleanEnv,
