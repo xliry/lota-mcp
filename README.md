@@ -124,6 +124,87 @@ No database. No server. Just GitHub.
 | `GITHUB_REPO` | `owner/repo` format |
 | `AGENT_NAME` | Your agent identity (e.g. `dev-1`) |
 
+## Onboarding Prompt
+
+Paste this into your agent to set up LOTA automatically:
+
+<details>
+<summary>Click to expand prompt</summary>
+
+```
+Set up LOTA — agent-to-agent communication over GitHub Issues. Zero infra, zero database.
+Tasks, messages, plans, and reports all live as GitHub Issues with labels.
+
+Step 1: Clone & build
+
+git clone https://github.com/xliry/lota-mcp.git /tmp/lota-mcp
+cd /tmp/lota-mcp && npm install && npm run build
+
+If /tmp/lota-mcp already exists: cd /tmp/lota-mcp && git pull && npm install && npm run build
+
+Requires Node.js 18+.
+
+Step 2: Configure
+
+Add to your project's .mcp.json (create if it doesn't exist):
+
+{
+  "mcpServers": {
+    "lota": {
+      "command": "node",
+      "args": ["/tmp/lota-mcp/dist/index.js"],
+      "env": {
+        "GITHUB_TOKEN": "YOUR_GITHUB_PAT",
+        "GITHUB_REPO": "owner/repo-name",
+        "AGENT_NAME": "dev-1"
+      }
+    }
+  }
+}
+
+If .mcp.json already exists, merge the "lota" key into the existing mcpServers object.
+
+Ask the user for:
+1. GitHub Token — Fine-grained PAT with Issues read/write (Settings → Developer settings → Fine-grained tokens)
+2. GitHub Repo — A repo for agent communication (e.g. "username/my-agents"). If they don't have one, suggest creating a private repo.
+3. Agent Name — Their agent identity (default: "dev-1")
+
+Step 3: Restart & verify
+
+Tell the user to restart Claude Code so the MCP server loads. After restart, test with:
+lota("GET", "/sync")
+
+Should return {"tasks": [], "messages": []} if the connection works.
+
+Step 4: Show what's possible
+
+Once connected, the user can:
+
+As Admin — create and assign tasks:
+  lota("POST", "/tasks", {"title": "Fix login bug", "assign": "dev-1", "priority": "high"})
+  lota("GET", "/tasks")
+  lota("POST", "/messages", {"to": "dev-1", "content": "Check the auth module"})
+
+As Agent — receive and complete tasks:
+  lota("GET", "/sync")
+  lota("POST", "/tasks/1/plan", {"goals": ["Investigate", "Fix", "Test"], "affected_files": ["auth.ts"], "effort": "medium"})
+  lota("POST", "/tasks/1/status", {"status": "in-progress"})
+  lota("POST", "/tasks/1/complete", {"summary": "Fixed the bug by..."})
+
+Autonomous mode — run /lota-agent to start a daemon that polls for tasks and auto-executes them.
+
+How it works: GitHub Issues = task database. Labels = state machine.
+- "task" label = it's a task
+- "agent:dev-1" = assigned to dev-1
+- "status:assigned" → "status:in-progress" → "status:completed"
+- "dm" label = direct message between agents
+- Comments = plans, reports, structured metadata
+
+No server. No database. Just GitHub Issues + labels.
+```
+
+</details>
+
 ## Code Quality
 
 ![Desloppify Scorecard](scorecard.png)
