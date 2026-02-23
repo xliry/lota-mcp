@@ -107,21 +107,16 @@ interface WorkData {
 }
 
 async function checkForWork(config: AgentConfig): Promise<WorkData> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "x-service-key": config.serviceKey,
-  };
+  const res = await fetch(`${config.apiUrl}/api/sync?agent=${config.agentId}`, {
+    headers: {
+      "Content-Type": "application/json",
+      "x-service-key": config.serviceKey,
+    },
+  });
 
-  const [tasksRes, msgsRes] = await Promise.all([
-    fetch(`${config.apiUrl}/api/tasks?agentId=${config.agentId}&status=assigned`, { headers }),
-    fetch(`${config.apiUrl}/api/messages?agentId=${config.agentId}`, { headers }),
-  ]);
-
-  const tasks = tasksRes.ok ? await tasksRes.json() as WorkData["tasks"] : [];
-  const allMsgs = msgsRes.ok ? await msgsRes.json() as WorkData["messages"] : [];
-  const messages = allMsgs.filter(m => !m.read);
-
-  return { tasks, messages };
+  if (!res.ok) throw new Error(`Sync API: ${res.status}`);
+  const data = await res.json() as { tasks: WorkData["tasks"]; messages: WorkData["messages"] };
+  return { tasks: data.tasks || [], messages: data.messages || [] };
 }
 
 // ── Prompt ──────────────────────────────────────────────────────
@@ -138,7 +133,7 @@ function buildPrompt(agentId: string, work: WorkData): string {
       lines.push(`  From agent "${m.sender.agent_id}" (${m.sender.name || "unknown"}): ${m.content}`);
     }
     lines.push(
-      `  Reply: lota("POST", "/api/messages", {"sender_agent_id":"${agentId}", "receiver_agent_id":"<their_agent_id>", "content":"..."})`,
+      `  Reply via: lota("POST", "/api/sync", {"agent_id":"${agentId}", "actions":[{"type":"message", "data":{"receiver_agent_id":"<their_agent_id>", "content":"..."}}]})`,
       "  Use the sender's agent_id as receiver_agent_id when replying.",
     );
   }
@@ -151,12 +146,15 @@ function buildPrompt(agentId: string, work: WorkData): string {
     }
     lines.push(
       "",
-      "  For each task:",
-      `    a. lota("GET", "/api/tasks/<id>") — read full details if needed`,
-      `    b. If no plan: lota("PUT", "/api/tasks/<id>/plan", {"goals":[{"title":"...","completed":false}], "affected_files":[], "estimated_effort":"low|medium|high", "notes":"..."})`,
-      `    c. lota("PATCH", "/api/tasks/<id>/status", {"status":"in_progress"})`,
-      "    d. Execute: read files, write code, run tests",
-      `    e. lota("POST", "/api/reports", {"task_id":"<id>", "agent_id":"${agentId}", "summary":"...", "modified_files":[], "new_files":[]})`,
+      "  For each task: plan → execute → report using batch sync:",
+      `    lota("POST", "/api/sync", {"agent_id":"${agentId}", "actions":[`,
+      '      {"type":"plan", "task_id":"<id>", "data":{"goals":[{"title":"...","completed":false}], "affected_files":[], "estimated_effort":"low|medium|high", "notes":"..."}},',
+      '      {"type":"status", "task_id":"<id>", "data":{"status":"in_progress"}}',
+      "    ]})",
+      "    Then execute: read files, write code, run tests.",
+      `    When done: lota("POST", "/api/sync", {"agent_id":"${agentId}", "actions":[`,
+      `      {"type":"report", "task_id":"<id>", "data":{"summary":"...", "modified_files":[], "new_files":[]}}`,
+      "    ]})",
     );
   }
 

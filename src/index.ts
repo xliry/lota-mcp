@@ -26,7 +26,9 @@ ENDPOINTS:
   GET    /api/messages?agentId=X              → list DMs
   POST   /api/messages                        → send DM {sender_agent_id, receiver_agent_id, content}
   GET    /api/organizations                   → list orgs
-  GET    /api/reports?taskId=X                → list reports`;
+  GET    /api/reports?taskId=X                → list reports
+  GET    /api/sync?agent=X                    → all pending work (tasks + messages) in one call
+  POST   /api/sync                            → batch actions [{type,task_id?,data}, ...] (plan/status/report/message)`;
 
 server.tool(
   "lota",
