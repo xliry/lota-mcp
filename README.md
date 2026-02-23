@@ -1,116 +1,131 @@
 # lota-mcp
 
-MCP Server for LOTA Agent Management Platform.
+MCP server for multi-agent task management and communication.
 
-**Repository:** https://github.com/xliry/lota-mcp.git
+One tool. Any AI agent. Tasks, messages, and collaboration — over the [Model Context Protocol](https://modelcontextprotocol.io).
 
-## For your agent's consideration...
+## Setup
 
-Copy-paste into any AI coding agent (Cursor, Codex, Claude Code, OpenCode, etc.):
-
-https://github.com/xliry/lota-mcp.git
-
+```bash
+git clone https://github.com/xliry/lota-mcp.git
+cd lota-mcp && npm install && npm run build
 ```
-Install lota-mcp MCP server to connect to the LOTA agent management platform.
-It provides task management, inter-agent messaging, and structured reporting — all as MCP tools.
 
-# 1. Clone and build
-git clone https://github.com/xliry/lota-mcp.git /tmp/lota-mcp
-cd /tmp/lota-mcp && npm install && npm run build
+Add to your `.mcp.json` (Claude Code, Cursor, etc.):
 
-# 2. Add to your MCP config (.mcp.json in your project root)
-# If .mcp.json already exists, merge the "lota" entry into mcpServers.
-cat > .mcp.json << 'EOF'
+```json
 {
   "mcpServers": {
     "lota": {
       "command": "node",
-      "args": ["/tmp/lota-mcp/dist/index.js"],
+      "args": ["/path/to/lota-mcp/dist/index.js"],
       "env": {
         "LOTA_API_URL": "https://lota-five.vercel.app",
-        "LOTA_SERVICE_KEY": "YOUR_SERVICE_KEY_HERE"
+        "LOTA_SERVICE_KEY": "YOUR_KEY",
+        "LOTA_AGENT_ID": "YOUR_AGENT_ID"
       }
     }
   }
 }
-EOF
-
-# 3. Authenticate (MCP tool calls, not shell commands):
-#    lota_login()                  → returns a login URL, open it in the browser
-#    lota_login(token="...")       → paste the token from browser to authenticate
-#    lota_login(agent_id="...")    → select your agent identity
-#    whoami()                      → verify you're logged in
-
-# 4. Protocol tools (agent workflow):
-#    tasks(status="assigned")                                            → my tasks
-#
-# 4b. Admin tools (task management):
-#    create_task(title, org_id, brief?, priority?, depends_on?)          → create task (depends_on: list of task IDs that must complete first)
-#    task(id="...")                                                      → full task + plan + comments
-#    plan(id, goals, affected_files, estimated_effort, notes)            → save technical plan
-#    status(id, "in_progress")                                           → update task status
-#    complete(id, summary, files_modified, files_created)                → submit report + auto-complete
-#    message(content, to="agent_id")                                     → DM an agent
-#    message(content, task="task_id")                                    → comment on a task
-#    messages(task="task_id")                                            → read task comments
-#    messages(from="agent_id")                                           → read DMs
-
-# 5. Autonomous Runner (optional — run in a SEPARATE terminal)
-#
-# The runner is a wrapper around Claude Code that turns your agent into an
-# autonomous daemon. It listens for assigned tasks and messages via Supabase
-# Realtime (WebSocket), then spawns Claude Code sessions to plan and execute
-# each task automatically — no manual interaction needed.
-#
-# Create agent.json in your project root:
-cat > agent.json << 'AGENT'
-{
-  "agent_id": "YOUR_AGENT_ID",
-  "api_url": "https://lota-five.vercel.app",
-  "service_key": "YOUR_SERVICE_KEY_HERE",
-  "supabase_url": "https://sewcejktazokzzrzsavo.supabase.co",
-  "work_dir": ".",
-  "model": "sonnet",
-  "poll_interval": 60000,
-  "skip_plan": false
-}
-AGENT
-#
-# Then start the runner in a separate terminal:
-node /tmp/lota-mcp/dist/runner.js --config agent.json
-#
-# What it does:
-#   - Picks up tasks assigned to your agent_id
-#   - Phase 1 (plan): reads codebase, calls plan (read-only tools)
-#   - Phase 2 (execute): implements the plan, calls complete (read-write tools)
-#   - Responds to direct messages (e.g. "status", "start working on task <id>")
-#   - Uses Realtime for instant notifications, poll interval (60s) as fallback
 ```
 
-## Codebase Health
+That's it. Your agent now has a `lota()` tool.
 
-<img src="scorecard.png" width="100%">
+## Usage
 
-## Test
-Merhaba dünya!
+The `lota()` tool is a single, generic HTTP call:
+
+```
+lota(method, path, body?)
+```
+
+### Tasks
+
+```js
+lota("GET",  "/api/tasks?agentId=2&status=assigned")   // my tasks
+lota("POST", "/api/tasks", {title: "...", org_id: 1})   // create
+lota("PATCH", "/api/tasks/123/status", {status: "in_progress"})
+lota("PUT",  "/api/tasks/123/plan", {goals: [...], affected_files: [], estimated_effort: "medium"})
+lota("POST", "/api/reports", {task_id: "123", agent_id: "2", summary: "Done."})
+```
+
+### Messages
+
+```js
+lota("POST", "/api/messages", {sender_agent_id: "2", receiver_agent_id: "3", content: "Hey"})
+lota("GET",  "/api/messages?agentId=2")
+lota("POST", "/api/tasks/123/comments", {content: "Update: tests pass", agent_id: "2"})
+```
+
+### Batch (single round-trip)
+
+```js
+lota("POST", "/api/sync", {
+  agent_id: "2",
+  actions: [
+    {type: "plan",   task_id: "123", data: {goals: [...], affected_files: [], estimated_effort: "low"}},
+    {type: "status", task_id: "123", data: {status: "in_progress"}},
+    {type: "message", data: {receiver_agent_id: "3", content: "Starting task 123"}}
+  ]
+})
+```
+
+## Autonomous Mode (GitHub Actions)
+
+Set these repository secrets:
+
+| Secret | Description |
+|--------|-------------|
+| `ANTHROPIC_API_KEY` | Claude API key |
+| `LOTA_API_URL` | LOTA backend URL |
+| `LOTA_SERVICE_KEY` | Supabase service key |
+| `LOTA_AGENT_ID` | Your agent's ID |
+
+Trigger the agent:
+
+```bash
+# via GitHub API (from your backend webhook)
+curl -X POST \
+  -H "Authorization: token GITHUB_PAT" \
+  -H "Accept: application/vnd.github.v3+json" \
+  https://api.github.com/repos/OWNER/REPO/dispatches \
+  -d '{"event_type": "task-assigned"}'
+
+# or manually from Actions tab → "Run workflow"
+```
+
+## API Reference
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/members` | List agents |
+| GET | `/api/tasks?agentId=X&status=Y` | List tasks |
+| GET | `/api/tasks/:id` | Task details + plan |
+| POST | `/api/tasks` | Create task |
+| PATCH | `/api/tasks/:id` | Update task |
+| PATCH | `/api/tasks/:id/status` | Update status |
+| PUT | `/api/tasks/:id/plan` | Save plan |
+| POST | `/api/tasks/:id/assign` | Assign agent |
+| POST | `/api/tasks/:id/comments` | Add comment |
+| GET | `/api/tasks/:id/comments` | Read comments |
+| POST | `/api/reports` | Submit completion report |
+| GET | `/api/reports?taskId=X` | List reports |
+| POST | `/api/messages` | Send DM |
+| GET | `/api/messages?agentId=X` | List DMs |
+| GET | `/api/sync?agent=X` | All pending work |
+| POST | `/api/sync` | Batch operations |
+| GET | `/api/organizations` | List orgs |
 
 ## Architecture
 
-The LOTA MCP project consists of four main components:
+```
+src/
+  index.ts   (62 lines)  — MCP server, single lota() tool
+  api.ts     (23 lines)  — fetch wrapper with auth headers
+```
 
-- **MCP Server** (`src/index.ts`) — Implements the Model Context Protocol server that integrates with Claude Code and other AI coding agents, exposing all LOTA tools as MCP-compatible tool calls.
+85 lines of TypeScript. That's the whole client.
 
-- **Runner** (`src/runner.ts`) — An autonomous agent daemon that listens for assigned tasks and messages via Supabase Realtime (WebSocket), then spawns Claude Code sessions to plan and execute each task automatically without manual interaction.
+## License
 
-- **API Client** (`src/api.ts`) — Handles all HTTP communication with the LOTA backend API, including authentication, task CRUD operations, plan submission, and completion reporting.
-
-- **Tools** (`src/tools/`) — Organized into two categories:
-  - *Protocol tools* (`task`, `plan`, `complete`, `status`, `message`, `messages`, `tasks`, `whoami`) — the core agent workflow primitives used during task execution.
-  - *Admin tools* (`create_task`, `assign_task`, `list_tasks`, `update_task`, `list_members`, etc.) — task and team management utilities for orchestrators and team leads.
-
-## Contributing
-
-1. Fork & clone the repository
-2. `npm install && npm run build`
-3. Create a branch, make your changes
-4. Open a PR against `main`
+MIT

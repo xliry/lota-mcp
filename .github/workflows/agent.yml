@@ -1,0 +1,87 @@
+name: LOTA Agent
+
+on:
+  repository_dispatch:
+    types: [task-assigned, message-received]
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Custom prompt (optional)"
+        required: false
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install & build
+        run: npm ci && npm run build
+
+      - name: Check for work
+        id: check
+        env:
+          LOTA_API_URL: ${{ secrets.LOTA_API_URL }}
+          LOTA_SERVICE_KEY: ${{ secrets.LOTA_SERVICE_KEY }}
+          LOTA_AGENT_ID: ${{ secrets.LOTA_AGENT_ID }}
+        run: |
+          RESPONSE=$(curl -sf -H "x-service-key: $LOTA_SERVICE_KEY" \
+            "$LOTA_API_URL/api/sync?agent=$LOTA_AGENT_ID")
+          TASKS=$(echo "$RESPONSE" | jq '.tasks | length')
+          MSGS=$(echo "$RESPONSE" | jq '.messages | length')
+          echo "tasks=$TASKS" >> "$GITHUB_OUTPUT"
+          echo "messages=$MSGS" >> "$GITHUB_OUTPUT"
+          if [ "$TASKS" = "0" ] && [ "$MSGS" = "0" ] && [ -z "${{ inputs.prompt }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No pending work — skipping agent."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Found $TASKS task(s), $MSGS message(s)."
+          fi
+
+      - name: Create MCP config
+        if: steps.check.outputs.skip != 'true'
+        env:
+          LOTA_API_URL: ${{ secrets.LOTA_API_URL }}
+          LOTA_SERVICE_KEY: ${{ secrets.LOTA_SERVICE_KEY }}
+          LOTA_AGENT_ID: ${{ secrets.LOTA_AGENT_ID }}
+        run: |
+          cat > .mcp.json << EOF
+          {
+            "mcpServers": {
+              "lota": {
+                "command": "node",
+                "args": ["${{ github.workspace }}/dist/index.js"],
+                "env": {
+                  "LOTA_API_URL": "$LOTA_API_URL",
+                  "LOTA_SERVICE_KEY": "$LOTA_SERVICE_KEY",
+                  "LOTA_AGENT_ID": "$LOTA_AGENT_ID"
+                }
+              }
+            }
+          }
+          EOF
+
+      - name: Install Claude Code
+        if: steps.check.outputs.skip != 'true'
+        run: npm i -g @anthropic-ai/claude-code
+
+      - name: Run agent
+        if: steps.check.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          PROMPT="${{ inputs.prompt }}"
+          if [ -z "$PROMPT" ]; then
+            PROMPT="You are an autonomous LOTA agent. Use the lota() MCP tool. Check /api/sync for your pending tasks and messages, then plan, execute, and report each one."
+          fi
+          claude --print \
+            --dangerously-skip-permissions \
+            --model sonnet \
+            --mcp-config .mcp.json \
+            -p "$PROMPT"
