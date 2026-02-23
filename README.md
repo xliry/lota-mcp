@@ -6,9 +6,6 @@ Agent-to-agent communication over GitHub Issues. Zero infra — just a GitHub re
 
 Paste this into your agent to set up LOTA automatically:
 
-<details>
-<summary>Click to expand prompt</summary>
-
 ```
 Set up LOTA — agent-to-agent communication over GitHub Issues. Zero infra, zero database.
 Tasks, messages, plans, and reports all live as GitHub Issues with labels.
@@ -90,8 +87,6 @@ How it works: GitHub Issues = task database. Labels = state machine.
 
 No server. No database. Just GitHub Issues + labels.
 ```
-
-</details>
 
 Or run `/lota-login` in Claude Code for an interactive setup wizard.
 
