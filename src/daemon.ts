@@ -156,6 +156,72 @@ function buildPrompt(agentName: string, work: WorkData): string {
   return lines.join("\n");
 }
 
+// ── Event formatter (stream-json → readable log) ────────────────
+
+function formatEvent(event: any) {
+  const t = time();
+  const write = (icon: string, msg: string) => {
+    const plain = `[${t}] ${icon} ${msg}`;
+    const colored = `${PRE} \x1b[90m${t}\x1b[0m ${icon} ${msg}`;
+    console.log(colored);
+    appendFileSync(LOG_FILE, `${plain}\n`);
+  };
+
+  // Tool use (agent calling a tool)
+  if (event.type === "content_block_start" && event.content_block?.type === "tool_use") {
+    const name = event.content_block.name || "unknown";
+    write("🔧", `Tool: ${name}`);
+    return;
+  }
+
+  // Tool result
+  if (event.type === "result" && event.subtype === "tool_result") {
+    return; // skip verbose tool results
+  }
+
+  // Assistant text
+  if (event.type === "assistant" && event.message?.content) {
+    for (const block of event.message.content) {
+      if (block.type === "tool_use") {
+        const name = block.name || "";
+        const input = block.input || {};
+
+        if (name === "Write" || name === "Edit") {
+          write("📝", `${name}: ${input.file_path || ""}`);
+        } else if (name === "Read") {
+          write("📖", `Read: ${input.file_path || ""}`);
+        } else if (name === "Bash") {
+          const cmd = (input.command || "").slice(0, 120);
+          write("💻", `Bash: ${cmd}`);
+        } else if (name === "Glob" || name === "Grep") {
+          write("🔍", `${name}: ${input.pattern || ""}`);
+        } else if (name.startsWith("mcp__lota")) {
+          const method = input.method || "";
+          const path = input.path || "";
+          write("🔗", `LOTA: ${method} ${path}`);
+        } else {
+          write("🔧", `${name}`);
+        }
+      } else if (block.type === "text") {
+        const text = (block.text || "").slice(0, 200);
+        if (text.trim()) {
+          write("💬", text.replace(/\n/g, " ").trim());
+        }
+      }
+    }
+    return;
+  }
+
+  // System/result messages
+  if (event.type === "result") {
+    const cost = event.cost_usd ? `$${event.cost_usd.toFixed(4)}` : "";
+    const dur = event.duration_ms ? `${(event.duration_ms / 1000).toFixed(1)}s` : "";
+    const turns = event.num_turns || 0;
+    write("✅", `Done — ${turns} turns, ${dur}, ${cost}`);
+    return;
+  }
+}
+
 // ── Claude subprocess ───────────────────────────────────────────
 
 let currentProcess: ChildProcess | null = null;
@@ -185,6 +251,7 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
     const isRoot = process.getuid?.() === 0;
     const args = [
       "--print",
+      "--output-format", "stream-json",
       ...(isRoot ? [] : ["--dangerously-skip-permissions"]),
       "--model", config.model,
       "--mcp-config", config.configPath,
@@ -203,10 +270,20 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
 
     currentProcess = child;
 
+    let jsonBuffer = "";
+
     child.stdout?.on("data", (d: Buffer) => {
-      const text = d.toString();
-      for (const line of text.split("\n")) {
-        if (line.trim()) {
+      jsonBuffer += d.toString();
+      const lines = jsonBuffer.split("\n");
+      jsonBuffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const event = JSON.parse(line);
+          formatEvent(event);
+        } catch {
+          // Not JSON, log raw
           console.log(`  ${line}`);
           appendFileSync(LOG_FILE, `  ${line}\n`);
         }
@@ -217,7 +294,6 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
       const text = d.toString();
       for (const line of text.split("\n")) {
         if (line.trim()) {
-          console.error(`  ${line}`);
           appendFileSync(LOG_FILE, `  [stderr] ${line}\n`);
         }
       }
