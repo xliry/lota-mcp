@@ -3,3 +3,4 @@ dist/
 .env
 .mcp.json
 .desloppify/
+agent.json
