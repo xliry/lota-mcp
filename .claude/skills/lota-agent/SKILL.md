@@ -3,7 +3,7 @@ name: lota-agent
 description: >
   Start the autonomous LOTA agent in the background. The agent polls GitHub Issues
   for assigned tasks, then spawns Claude Code to plan, execute, and complete them.
-  Use when the user says "lota-agent", "start agent", "otonom mod", "agent başlat",
+  Use when the user says "lota-agent", "start agent", "autonomous mode", "launch agent",
   or wants to run the autonomous agent.
 allowed-tools: Bash(node *), Bash(cd * && node *), Bash(kill *), Bash(sleep *), Bash(ps *), Bash(pkill *), Bash(git clone *), Bash(npm *), Bash(curl *), Bash(mkdir *)
 ---

@@ -3,7 +3,7 @@ name: lota-hub
 description: >
   LOTA admin dashboard. Create tasks, assign agents, send messages, check status,
   and manage your agent workforce. Use when the user says "lota hub", "lota admin",
-  "görev ata", "task oluştur", "agent yönet", "send task", "check agents",
+  "send task", "check agents", "assign task", "create task", "manage agents",
   or wants to manage agents and tasks.
 allowed-tools: mcp__lota__lota
 ---
@@ -56,5 +56,4 @@ Ask the user what they want to do. Common actions:
 - Be conversational. Ask "What do you want to do?" after each action.
 - When creating tasks, ask for: title, agent to assign, priority, and description.
 - Show results in a clean, readable format.
-- If the user speaks Turkish, respond in Turkish.
 - Stay in hub mode — keep asking for next action until the user says they're done.
