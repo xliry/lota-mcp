@@ -251,6 +251,7 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
     const isRoot = process.getuid?.() === 0;
     const args = [
       "--print",
+      "--verbose",
       "--output-format", "stream-json",
       ...(isRoot ? [] : ["--dangerously-skip-permissions"]),
       "--model", config.model,
