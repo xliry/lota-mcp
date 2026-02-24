@@ -193,7 +193,12 @@ export async function lota(method: string, path: string, body?: Record<string, u
   if (replyMatch) {
     const id = replyMatch[1];
     const { content } = body as { content: string };
-    return await postIssueComment(id, content);
+    const result = await postIssueComment(id, content);
+    await gh(`/repos/${repo()}/issues/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ state: "closed" }),
+    });
+    return result;
   }
 
   // GET /sync
