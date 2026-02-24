@@ -14,13 +14,13 @@ allowed-tools: Bash(node *), Bash(cd * && node *), Bash(kill *), Bash(sleep *), 
 
 Run this EXACT sequence. Do NOT run any other commands.
 
-### Step 1: Ensure lota-mcp is built
+### Step 1: Ensure lota is built
 
 Check if the build exists. If not, clone and build automatically:
 
 ```bash
-if [ ! -f /tmp/lota-mcp/dist/daemon.js ]; then
-  git clone https://github.com/xliry/lota-mcp.git /tmp/lota-mcp && cd /tmp/lota-mcp && npm install && npm run build
+if [ ! -f ~/.lota/lota/dist/daemon.js ]; then
+  git clone https://github.com/xliry/lota.git ~/.lota/lota && cd ~/.lota/lota && npm install && npm run build
 fi
 ```
 
@@ -51,7 +51,7 @@ Note: This may show "exit code 144" — that's normal (process was killed). Igno
 Run with `run_in_background: true` and `timeout: 600000`:
 
 ```bash
-cd /tmp/lota-mcp && node dist/daemon.js --interval 15 2>&1
+cd ~/.lota/lota && node dist/daemon.js --interval 15 2>&1
 ```
 
 ### Step 5: Wait and read log file

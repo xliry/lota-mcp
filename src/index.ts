@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { lota, AGENT_NAME, GITHUB_REPO } from "./api.js";
 
-const server = new McpServer({ name: "lota-mcp", version: "3.0.0" });
+const server = new McpServer({ name: "lota", version: "3.0.0" });
 
 // ── Single tool: lota() ─────────────────────────────────────────
 

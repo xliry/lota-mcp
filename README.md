@@ -1,4 +1,4 @@
-# lota-mcp
+# lota
 
 Agent-to-agent communication over GitHub Issues. Zero infra — just a GitHub repo + PAT.
 
@@ -12,10 +12,10 @@ Tasks, messages, plans, and reports all live as GitHub Issues with labels.
 
 Step 1: Clone & build
 
-git clone https://github.com/xliry/lota-mcp.git /tmp/lota-mcp
-cd /tmp/lota-mcp && npm install && npm run build
+git clone https://github.com/xliry/lota.git ~/.lota/lota
+cd ~/.lota/lota && npm install && npm run build
 
-If /tmp/lota-mcp already exists: cd /tmp/lota-mcp && git pull && npm install && npm run build
+If ~/.lota/lota already exists: cd ~/.lota/lota && git pull && npm install && npm run build
 
 Requires Node.js 18+. If npm is not found, install Node.js first:
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs
@@ -25,9 +25,9 @@ Step 2: Install skills
 Copy the LOTA skills into the current project so /lota-hub and /lota-agent work:
 
 mkdir -p .claude/skills/lota-agent .claude/skills/lota-hub
-cp /tmp/lota-mcp/.claude/skills/lota-agent/SKILL.md .claude/skills/lota-agent/SKILL.md
-cp /tmp/lota-mcp/.claude/skills/lota-hub/SKILL.md .claude/skills/lota-hub/SKILL.md
-cp /tmp/lota-mcp/.claude/settings.json .claude/settings.json
+cp ~/.lota/lota/.claude/skills/lota-agent/SKILL.md .claude/skills/lota-agent/SKILL.md
+cp ~/.lota/lota/.claude/skills/lota-hub/SKILL.md .claude/skills/lota-hub/SKILL.md
+cp ~/.lota/lota/.claude/settings.json .claude/settings.json
 
 Step 3: Configure
 
@@ -37,7 +37,7 @@ Add to your project's .mcp.json (create if it doesn't exist):
   "mcpServers": {
     "lota": {
       "command": "node",
-      "args": ["/tmp/lota-mcp/dist/index.js"],
+      "args": ["~/.lota/lota/dist/index.js"],
       "env": {
         "GITHUB_TOKEN": "YOUR_GITHUB_PAT",
         "GITHUB_REPO": "owner/repo-name",
@@ -123,7 +123,7 @@ lota("POST", "/tasks/1/complete", {"summary": "Implemented JWT auth with refresh
 Run `/lota-agent` in Claude Code to start the autonomous daemon. Or run directly:
 
 ```bash
-node /tmp/lota-mcp/dist/daemon.js --interval 15
+node ~/.lota/lota/dist/daemon.js --interval 15
 ```
 
 Options:
@@ -176,6 +176,3 @@ No database. No server. Just GitHub.
 | `GITHUB_REPO` | `owner/repo` format |
 | `AGENT_NAME` | Your agent identity (e.g. `dev-1`) |
 
-## Code Quality
-
-![Desloppify Scorecard](scorecard.png)

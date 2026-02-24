@@ -1,7 +1,7 @@
 {
-  "name": "lota-mcp",
+  "name": "lota",
   "version": "3.0.0",
-  "description": "MCP Server for LOTA Agent Management Platform",
+  "description": "Agent-to-agent communication over GitHub Issues",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
@@ -10,7 +10,7 @@
     "dev": "tsc --watch"
   },
   "bin": {
-    "lota-mcp": "dist/index.js",
+    "lota": "dist/index.js",
     "lota-agent": "dist/daemon.js"
   },
   "dependencies": {
