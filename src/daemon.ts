@@ -133,15 +133,23 @@ function buildPrompt(agentName: string, work: WorkData): string {
   if (work.tasks.length) {
     lines.push("", "── ASSIGNED TASKS ──");
     for (const t of work.tasks) {
-      lines.push(`  Task #${t.id}: ${t.title || "(untitled)"}${t.body ? ` — ${t.body.slice(0, 100)}` : ""}`);
+      lines.push(`  Task #${t.id}: ${t.title || "(untitled)"}`);
+      if (t.body) {
+        lines.push("", "  ── TASK BODY ──", t.body, "  ── END BODY ──");
+      }
     }
     lines.push(
       "",
+      "  IMPORTANT: Before starting any task, ALWAYS read the full task details and comments first:",
+      `    lota("GET", "/tasks/<id>")`,
+      "  Comments may contain critical updates, requirement changes, or tech stack decisions.",
+      "",
       "  For each task:",
-      `    1. Save plan: lota("POST", "/tasks/<id>/plan", {"goals": [...], "affected_files": [], "effort": "medium"})`,
-      `    2. Set status: lota("POST", "/tasks/<id>/status", {"status": "in-progress"})`,
-      "    3. Execute: read files, write code, run tests.",
-      `    4. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
+      `    1. Read full details: lota("GET", "/tasks/<id>") — check body AND comments for updates`,
+      `    2. Save plan: lota("POST", "/tasks/<id>/plan", {"goals": [...], "affected_files": [], "effort": "medium"})`,
+      `    3. Set status: lota("POST", "/tasks/<id>/status", {"status": "in-progress"})`,
+      "    4. Execute: read files, write code, run tests.",
+      `    5. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
     );
   }
 
