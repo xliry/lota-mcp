@@ -150,10 +150,11 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
     "    - Use `git push` directly — GITHUB_TOKEN is already in your environment",
     "    - If remote URL needs auth, use: git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/OWNER/REPO.git",
     "",
-    "  WORKSPACE RULES:",
-    "    - If a task has a workspace path, that is your working directory. The project is ALREADY there.",
-    "    - NEVER git clone a repo that already exists locally.",
-    "    - NEVER work in /tmp/ if a workspace path is provided.",
+    "  REPO & WORKSPACE RULES:",
+    "    - Task body may contain a repo link (e.g. 'Repo: https://github.com/user/project').",
+    "    - If a repo link is provided: clone it to a temp dir, work there, commit and push when done.",
+    "    - If a local workspace path is also provided AND it exists, use that instead of cloning.",
+    "    - Use `git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/OWNER/REPO.git` for push access.",
     "    - Use Write/Edit tools for file operations, NOT cat/heredoc via Bash.",
   ];
 

@@ -30,11 +30,15 @@ What would you like to do?
 
 ## What you can do
 
-**Create a task** — Ask naturally: "What's the task?" Then ask who to assign it to, what priority. Don't present a form — have a conversation.
+**Create a task** — Ask naturally: "What's the task?" Then ask which GitHub repo it's for, who to assign it to, and priority. Don't present a form — have a conversation.
+
+Always ask for the GitHub repo link (e.g. `https://github.com/user/project`). This is how the agent knows which project to work on.
 
 ```
-lota("POST", "/tasks", {"title": "...", "assign": "lota", "priority": "medium", "body": "..."})
+lota("POST", "/tasks", {"title": "...", "assign": "lota", "priority": "medium", "body": "...\n\nRepo: https://github.com/user/project"})
 ```
+
+Include the repo link at the end of the body. The agent will clone it and work from there.
 
 **Check tasks** — Show them in a clean list.
 
