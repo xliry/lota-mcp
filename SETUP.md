@@ -22,12 +22,17 @@ If NOT found, guide them:
 1. Go to https://github.com/settings/tokens?type=beta
 2. Click 'Generate new token'
 3. Name it anything (e.g. 'lota')
-4. Under 'Repository access', select 'Only select repositories' → choose `xliry/lota-agents`
-5. Under 'Permissions' → 'Repository permissions' → set 'Issues' to 'Read and write'
+4. Under 'Repository access', select 'All repositories'
+5. Under 'Permissions' → 'Repository permissions' → set 'Issues', 'Contents', and 'Pull requests' to 'Read and write'
 6. Generate and paste the token here"
 
+**IMPORTANT**: Store the token as an environment variable, NOT hardcoded in .mcp.json:
+```bash
+echo 'export GITHUB_TOKEN="<the-token>"' >> ~/.bashrc && source ~/.bashrc
+```
+
 **Privacy note**: When asking for the token, say:
-"This token stays in your local .mcp.json file. It's only used to talk directly to GitHub's API — nothing else sees it."
+"This token is stored as an environment variable in ~/.bashrc — it's never written to config files that could be committed to git."
 
 ## Step 2: Configure .mcp.json
 
@@ -40,7 +45,6 @@ Read the current project's `.mcp.json` (if it exists). Merge the lota config int
       "command": "node",
       "args": ["~/.lota/lota/dist/index.js"],
       "env": {
-        "GITHUB_TOKEN": "<token-from-step-1>",
         "GITHUB_REPO": "xliry/lota-agents",
         "AGENT_NAME": "lota"
       }
@@ -48,6 +52,8 @@ Read the current project's `.mcp.json` (if it exists). Merge the lota config int
   }
 }
 ```
+
+**Note**: GITHUB_TOKEN is NOT in .mcp.json — it comes from the environment variable set in Step 1. The daemon and MCP server both inherit it automatically.
 
 If `.mcp.json` already has other servers, preserve them — only add/update the "lota" key.
 

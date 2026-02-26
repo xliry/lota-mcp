@@ -73,13 +73,16 @@ Also check environment: `$GITHUB_TOKEN`
 > "I need a GitHub token to read and write issues. Here's how (30 seconds):
 > 1. Go to https://github.com/settings/tokens?type=beta
 > 2. Click 'Generate new token', name it 'lota'
-> 3. Select the repo you want me to watch
-> 4. Set Issues permission to 'Read and write'
+> 3. Under 'Repository access', select 'All repositories'
+> 4. Set Issues, Contents, and Pull requests to 'Read and write'
 > 5. Paste the token here"
 >
-> "This token stays on your machine in ~/.mcp.json — it's never sent anywhere else."
+> "This token is stored as an env variable — never written to config files."
 
-Wait for the user to paste the token.
+Wait for the user to paste the token, then store it as an env var:
+```bash
+echo 'export GITHUB_TOKEN="<the-token>"' >> ~/.bashrc && source ~/.bashrc
+```
 
 #### Setup Step 3: Repository
 
@@ -98,7 +101,6 @@ Write/merge `~/.mcp.json`:
       "command": "node",
       "args": ["<absolute-path-to-home>/.lota/lota/dist/index.js"],
       "env": {
-        "GITHUB_TOKEN": "<token>",
         "GITHUB_REPO": "<repo>",
         "AGENT_NAME": "lota"
       }
@@ -107,8 +109,10 @@ Write/merge `~/.mcp.json`:
 }
 ```
 
-IMPORTANT: Use absolute path for args (resolve `~` to actual home directory).
-If `.mcp.json` already has other MCP servers, preserve them — only add/update "lota".
+IMPORTANT:
+- Use absolute path for args (resolve `~` to actual home directory).
+- Do NOT put GITHUB_TOKEN in .mcp.json — it comes from the env var set in Step 2.
+- If `.mcp.json` already has other MCP servers, preserve them — only add/update "lota".
 
 #### Setup Step 5: Install skills + permissions
 
