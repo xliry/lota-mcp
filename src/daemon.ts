@@ -591,11 +591,14 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
     cleanEnv.GIT_CONFIG_KEY_1 = "credential.helper";
     cleanEnv.GIT_CONFIG_VALUE_1 = "";
 
+    const isRoot = process.getuid?.() === 0;
     const args = [
       "--print",
       "--verbose",
       "--output-format", "stream-json",
-      "--dangerously-skip-permissions",
+      // --dangerously-skip-permissions is blocked when running as root
+      // For root: we rely on ~/.claude/settings.json (written above) for permissions
+      ...(isRoot ? [] : ["--dangerously-skip-permissions"]),
       "--model", config.model,
       ...(config.configPath ? ["--mcp-config", config.configPath] : []),
       "-p", buildPrompt(config.agentName, work, config),
