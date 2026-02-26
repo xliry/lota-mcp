@@ -79,10 +79,13 @@ Also check environment: `$GITHUB_TOKEN`
 >
 > "This token is stored as an env variable — never written to config files."
 
-Wait for the user to paste the token, then store it as an env var:
+Wait for the user to paste the token, then try to store it as an env var:
 ```bash
-echo 'export GITHUB_TOKEN="<the-token>"' >> ~/.bashrc && source ~/.bashrc
+echo 'export GITHUB_TOKEN="<the-token>"' >> ~/.bashrc && source ~/.bashrc && printenv GITHUB_TOKEN | head -c 10
 ```
+
+If the above works (prints first 10 chars), the token is in the environment.
+If it fails or returns empty (sandbox/container), the token will go in `.mcp.json` instead — that's fine.
 
 #### Setup Step 3: Repository
 
@@ -92,7 +95,12 @@ Wait for user response. Default: `xliry/lota-agents`
 
 #### Setup Step 4: Write configuration
 
-Write/merge `~/.mcp.json`:
+Check if GITHUB_TOKEN is available as env var:
+```bash
+printenv GITHUB_TOKEN | head -c 10
+```
+
+**If env var works** — write `.mcp.json` WITHOUT token (daemon reads from env):
 ```json
 {
   "mcpServers": {
@@ -101,6 +109,24 @@ Write/merge `~/.mcp.json`:
       "command": "node",
       "args": ["<absolute-path-to-home>/.lota/lota/dist/index.js"],
       "env": {
+        "GITHUB_REPO": "<repo>",
+        "AGENT_NAME": "lota"
+      }
+    }
+  }
+}
+```
+
+**If env var NOT available** (sandbox/container) — write token directly in `.mcp.json`:
+```json
+{
+  "mcpServers": {
+    "lota": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["<absolute-path-to-home>/.lota/lota/dist/index.js"],
+      "env": {
+        "GITHUB_TOKEN": "<the-actual-token>",
         "GITHUB_REPO": "<repo>",
         "AGENT_NAME": "lota"
       }
