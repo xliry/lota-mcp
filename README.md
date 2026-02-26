@@ -1,206 +1,103 @@
-# Lota
+# Lota Agent
 
-**Agent-to-agent communication over GitHub Issues. Zero infrastructure.**
+Lota is an autonomous agent that picks up tasks from GitHub Issues, plans them, and executes them — all without you having to babysit it.
 
-Lota turns GitHub Issues into a task queue for AI agents. No servers, no databases — just GitHub.
-
-```
-You ── create task ──→ GitHub Issue ──→ Agent picks it up
-You ←── report ──────← GitHub Issue ←── Agent completes it
-```
+Think of it like a developer on your team who checks their inbox every 15 seconds, plans the work, waits for your sign-off, then gets it done.
 
 ## How It Works
 
-1. A human (or agent) creates a task, which becomes a GitHub Issue
-2. Labels act as a state machine tracking task lifecycle
-3. An autonomous daemon polls for assigned tasks and spawns Claude Code to execute them
-4. Results are reported back as issue comments and label transitions
+Lota runs as a background daemon and polls GitHub Issues for work:
 
-**Task Lifecycle:**
+1. **Polls** — every 15 seconds, Lota checks for new or updated tasks
+2. **Plans** — for each new task, it explores the codebase and drafts an execution plan
+3. **Waits** — it posts the plan and pauses until you approve
+4. **Executes** — once approved, it dives in: edits files, runs commands, reports back
+5. **Responds** — if you leave a comment, Lota reads it on the next poll and adjusts
+
+All communication happens through GitHub Issue comments and labels — no webhooks, no special infrastructure.
+
+## Task Lifecycle
 
 ```
 assigned → planned → approved → in-progress → completed
 ```
 
-## Quick Start
-
-```bash
-# 1. Clone
-git clone <repo-url> ~/.lota/lota
-cd ~/.lota/lota
-
-# 2. Install & build
-npm install
-npm run build
-
-# 3. Set your GitHub token
-export GITHUB_TOKEN="ghp_..."
-
-# 4. Add MCP config to your project's .mcp.json
-cat <<'EOF' >> .mcp.json
-{
-  "mcpServers": {
-    "lota": {
-      "command": "node",
-      "args": ["~/.lota/lota/dist/index.js"],
-      "env": {
-        "GITHUB_TOKEN": "ghp_...",
-        "GITHUB_REPO": "owner/repo",
-        "AGENT_NAME": "my-agent"
-      }
-    }
-  }
-}
-EOF
-
-# 5. Install skills (optional)
-cp skills/* ~/.claude/skills/
-
-# 6. Restart Claude Code
-```
-
-## Setup
-
-### Prerequisites
-
-- Node.js
-- A GitHub repository for task storage
-- A GitHub personal access token with repo access
-
-### Configuration
-
-| Variable | Required | Description |
+| Stage | Who acts | What happens |
 |---|---|---|
-| `GITHUB_TOKEN` | Yes | GitHub personal access token |
-| `GITHUB_REPO` | Yes | Target repository (`owner/repo`) |
-| `AGENT_NAME` | Yes | Unique name for this agent |
-| `TELEGRAM_BOT_TOKEN` | No | Telegram bot token (supervised mode) |
-| `TELEGRAM_CHAT_ID` | No | Telegram chat ID (supervised mode) |
+| `assigned` | You | Create a task and assign it to Lota |
+| `planned` | Lota | Explores the codebase, posts a plan, waits for approval |
+| `approved` | You | Review the plan and approve it |
+| `in-progress` | Lota | Executes the plan (code edits, tests, etc.) |
+| `completed` | Lota | Posts a summary and closes the issue |
 
-## Usage
+## Creating a Task
 
-### MCP Tool (Claude Code Integration)
+The easiest way is through the `/lota-hub` skill in Claude Code:
 
-Lota exposes a single `lota()` tool via MCP stdio transport. Once configured in `.mcp.json`, Claude Code can create, query, and manage tasks directly.
+```
+/lota-hub
+```
 
-### Skills
+This opens an interactive dashboard where you can describe what you need in plain language — Lota handles the rest.
 
-| Skill | Description |
-|---|---|
-| `/lota-hub` | Dashboard for humans to create and manage tasks |
-| `/lota-agent` | Start the autonomous daemon |
+You can also create tasks directly via the API:
 
-### CLI
+```
+lota("POST", "/tasks", {
+  "title": "Add login endpoint",
+  "assign": "lota",
+  "priority": "high",
+  "body": "Implement POST /auth/login with JWT response",
+  "workspace": "~/my-project"
+})
+```
+
+Or just open a GitHub Issue in your repo, add the labels `task`, `agent:lota`, and `status:assigned`, and Lota will pick it up automatically.
+
+## Running the Agent
+
+The easiest way to start Lota is with the `/lota-agent` skill:
+
+```
+/lota-agent
+```
+
+It walks you through setup (GitHub token, repo config) and starts the daemon. If you prefer to run it manually:
 
 ```bash
-# Start the MCP server
-lota
+# Install
+git clone https://github.com/xliry/lota-agents.git ~/.lota/lota
+cd ~/.lota/lota
+npm install && npm run build
 
-# Start the autonomous daemon
-lota-agent
-
-# Daemon options
-lota-agent --interval 30        # Poll every 30 seconds
-lota-agent --once               # Run once and exit
-lota-agent --model sonnet       # Specify Claude model
-lota-agent --mode auto          # Auto mode (default)
-lota-agent --mode supervised    # Require Telegram approval
-lota-agent --config ./cfg.json  # Custom config file
+# Start
+node dist/daemon.js --interval 15 --mode auto
 ```
 
-**Daemon Modes:**
+**Daemon options:**
 
-- **auto** — picks up tasks and executes them directly
-- **supervised** — sends a Telegram notification and waits for human approval before execution
+| Flag | Default | Description |
+|---|---|---|
+| `--interval 15` | 15s | How often to poll GitHub |
+| `--mode auto` | auto | `auto` runs immediately; `supervised` waits for Telegram approval |
+| `--once` | — | Run one poll cycle and exit |
+| `--model sonnet` | sonnet | Claude model to use |
 
-## API Reference
+**Required config** (in `.mcp.json` or environment):
 
-All routes are accessed through the `lota()` MCP tool.
+| Variable | Description |
+|---|---|
+| `GITHUB_TOKEN` | Personal access token with repo access |
+| `GITHUB_REPO` | Target repo (`owner/repo`) |
+| `AGENT_NAME` | Lota's name (default: `lota`) |
 
-### Tasks
+## Watching Lota Work
 
-```
-GET  /tasks                  → List my assigned tasks
-GET  /tasks?status=X         → Filter tasks by status
-GET  /tasks/:id              → Task detail + comments
-POST /tasks                  → Create a task
-POST /tasks/:id/plan         → Save execution plan
-POST /tasks/:id/status       → Update task status
-POST /tasks/:id/complete     → Report completion
-POST /tasks/:id/comment      → Add a comment
-GET  /sync                   → All pending work
-```
-
-### Request Bodies
-
-**Create task** — `POST /tasks`
-```json
-{
-  "title": "Implement auth module",
-  "assign": "agent-name",
-  "priority": "high",
-  "body": "Detailed description...",
-  "workspace": "/path/to/project"
-}
+```bash
+tail -f ~/.lota/lota/agent.log
 ```
 
-**Save plan** — `POST /tasks/:id/plan`
-```json
-{
-  "goals": ["Implement login endpoint", "Add JWT validation"],
-  "affected_files": ["src/auth.ts", "src/middleware.ts"],
-  "effort": "medium"
-}
-```
-
-**Update status** — `POST /tasks/:id/status`
-```json
-{
-  "status": "in-progress"
-}
-```
-
-**Report completion** — `POST /tasks/:id/complete`
-```json
-{
-  "summary": "Implemented auth with JWT tokens",
-  "modified_files": ["src/auth.ts"],
-  "new_files": ["src/middleware.ts"]
-}
-```
-
-**Add comment** — `POST /tasks/:id/comment`
-```json
-{
-  "content": "Blocked on missing API credentials"
-}
-```
-
-## Architecture
-
-Lota has three components:
-
-```
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐
-│  MCP Server │     │  GitHub API  │     │    Daemon    │
-│  index.ts   │────→│  github.ts   │←────│  daemon.ts   │
-│             │     │              │     │              │
-│ Claude Code │     │ Issues as DB │     │ Polls + runs │
-│ connects    │     │ Labels =     │     │ Claude Code  │
-│ via stdio   │     │ state machine│     │ subprocess   │
-└─────────────┘     └──────────────┘     └──────────────┘
-```
-
-- **`src/index.ts`** — MCP server exposing the `lota()` tool over stdio transport
-- **`src/github.ts`** — GitHub API layer. CRUD operations on issues. Labels encode state. Metadata stored as versioned HTML comments
-- **`src/daemon.ts`** — Autonomous daemon that polls GitHub, spawns Claude Code subprocesses. Supports auto and supervised modes with subagent spawning
-
-### Key Design Decisions
-
-- **GitHub Issues as database** — no infrastructure to maintain
-- **Labels as state machine** — status transitions are atomic label swaps
-- **HTML comments for metadata** — plans and structured data live inside issue bodies without cluttering the visible content
-- **Rate limiting with retry/backoff** — respects GitHub API limits
+You'll see it polling, picking up tasks, spawning Claude, and reporting back in real time.
 
 ## License
 
