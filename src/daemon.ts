@@ -624,18 +624,15 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
     try {
       const wsSettingsDir = join(workingDir, ".claude");
       mkdirSync(wsSettingsDir, { recursive: true });
-      const wsSettingsFile = join(wsSettingsDir, "settings.json");
-      if (!existsSync(wsSettingsFile)) {
-        writeFileSync(wsSettingsFile, JSON.stringify({
-          permissions: {
-            allow: [
-              "mcp__lota__lota", "Bash(*)", "Read(*)", "Write(*)",
-              "Edit(*)", "Glob(*)", "Grep(*)", "Task(*)",
-              "WebFetch(*)", "WebSearch(*)"
-            ]
-          }
-        }, null, 2) + "\n");
-      }
+      writeFileSync(join(wsSettingsDir, "settings.json"), JSON.stringify({
+        permissions: {
+          allow: [
+            "mcp__lota__lota", "Bash(*)", "Read(*)", "Write(*)",
+            "Edit(*)", "Glob(*)", "Grep(*)", "Task(*)",
+            "WebFetch(*)", "WebSearch(*)"
+          ]
+        }
+      }, null, 2) + "\n");
     } catch { /* workspace may be read-only */ }
 
     const child = spawn("claude", args, {

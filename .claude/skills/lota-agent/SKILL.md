@@ -142,11 +142,12 @@ IMPORTANT:
 
 #### Setup Step 5: Install skills + permissions
 
+Symlink skill files so they stay in sync with the repo (no duplicate copies):
 ```bash
-mkdir -p ~/.claude/skills/lota-agent ~/.claude/skills/lota-hub
+rm -rf ~/.claude/skills/lota-agent ~/.claude/skills/lota-hub 2>/dev/null
+ln -sf ~/.lota/lota/.claude/skills/lota-agent ~/.claude/skills/lota-agent
+ln -sf ~/.lota/lota/.claude/skills/lota-hub ~/.claude/skills/lota-hub
 ```
-
-Copy skill files from `~/.lota/lota/.claude/skills/` to `~/.claude/skills/`.
 
 Ensure `~/.claude/settings.json` includes `"mcp__lota__lota"` in the allow list.
 Merge — don't overwrite existing permissions.
