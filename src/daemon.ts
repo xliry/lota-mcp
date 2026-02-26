@@ -169,11 +169,7 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
     "  - Plan agent (subagent_type: 'Plan'): Design implementation approach before coding",
     "  - General agent (subagent_type: 'general-purpose'): Execute complex multi-step tasks",
     "",
-    "  ALWAYS explore before planning. ALWAYS plan before coding.",
     "  Launch multiple Explore agents in parallel when investigating different areas.",
-    "  Example:",
-    '    Task({ prompt: "Find all auth-related files and understand the login flow", subagent_type: "Explore" })',
-    '    Task({ prompt: "Search for existing test patterns in this project", subagent_type: "Explore" })',
   );
 
   if (work.tasks.length) {
@@ -193,12 +189,20 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
       `    lota("GET", "/tasks/<id>")`,
       "  Comments may contain critical updates, requirement changes, or tech stack decisions.",
       "",
-      "  For each task:",
-      `    1. Read full details: lota("GET", "/tasks/<id>") — check body AND comments for updates`,
-      "    2. Explore: Spawn Explore subagents to understand the codebase and affected areas",
-      `    3. Plan: Use a Plan subagent OR save plan via lota("POST", "/tasks/<id>/plan", {"goals": [...], "affected_files": [], "effort": "medium"})`,
+      "  WORKFLOW — adapt based on task complexity:",
+      "",
+      "  SIMPLE TASK (clear instructions, single file, small change):",
+      `    1. Read: lota("GET", "/tasks/<id>")`,
+      `    2. Set status: lota("POST", "/tasks/<id>/status", {"status": "in-progress"})`,
+      "    3. Execute directly — no explore/plan needed",
+      `    4. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
+      "",
+      "  COMPLEX TASK (vague requirements, multiple files, architecture decisions):",
+      `    1. Read: lota("GET", "/tasks/<id>")`,
+      "    2. Explore: Spawn Explore subagents to understand codebase and affected areas",
+      `    3. Plan: Save plan via lota("POST", "/tasks/<id>/plan", {"goals": [...], "affected_files": [], "effort": "..."})`,
       `    4. Set status: lota("POST", "/tasks/<id>/status", {"status": "in-progress"})`,
-      "    5. Execute: Write code, run tests. Use general-purpose subagents for parallel work if needed.",
+      "    5. Execute: Write code, run tests. Use subagents for parallel work if needed.",
       `    6. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
     );
   }
@@ -319,13 +323,20 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
     }
 
     // Use workspace from first task as cwd if available
-    const taskWorkspace = work.tasks[0]?.workspace;
-    const workingDir = taskWorkspace && existsSync(taskWorkspace) ? taskWorkspace : process.cwd();
-    if (taskWorkspace) {
-      if (existsSync(taskWorkspace)) {
-        ok(`Workspace: ${taskWorkspace}`);
+    // Resolve relative paths (e.g. "kid-club" → "/home/user/kid-club")
+    const rawWorkspace = work.tasks[0]?.workspace;
+    const home = process.env.HOME || "/root";
+    const taskWorkspace = rawWorkspace ? join(home, rawWorkspace) : null;
+    // Also check if the raw value itself is an absolute path that exists
+    const resolvedWorkspace = rawWorkspace && existsSync(rawWorkspace) ? rawWorkspace
+      : taskWorkspace && existsSync(taskWorkspace) ? taskWorkspace
+      : null;
+    const workingDir = resolvedWorkspace || process.cwd();
+    if (rawWorkspace) {
+      if (resolvedWorkspace) {
+        ok(`Workspace: ${resolvedWorkspace}`);
       } else {
-        err(`Workspace not found: ${taskWorkspace} — using cwd`);
+        err(`Workspace not found: ${rawWorkspace} (tried ${taskWorkspace}) — using cwd`);
       }
     }
 
