@@ -383,6 +383,7 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
     "    - Only use TodoWrite at most twice: once at the start to plan, once at the end to verify.",
     "    - Minimize redundant file reads — if you already read a file, don't read it again unless it was modified by someone else.",
     "    - ALWAYS commit and push your changes to the remote repository before completing a task.",
+    "    - BEFORE pushing: run `npm run build` (or the project's build command) to verify no compilation errors. Fix any TypeScript/compilation errors before pushing.",
   ];
 
   // Subagent instructions
@@ -470,7 +471,8 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
       `    1. Read: lota("GET", "/tasks/<id>") — check plan + any user comments`,
       `    2. Set status: lota("POST", "/tasks/<id>/status", {"status": "in-progress"})`,
       "    3. Execute the plan. Use subagents for parallel work if needed.",
-      `    4. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
+      "    4. BEFORE pushing: run `npm run build` (or the project's build command) to verify no compilation errors. If build fails, fix all errors before committing.",
+      `    5. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
     );
   }
 
