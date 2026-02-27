@@ -131,7 +131,7 @@ Options:
 
 // ── Logging (stdout + file) ──────────────────────────────────────
 
-const LOG_DIR = join(process.env.HOME || "~", ".lota", "lota");
+const LOG_DIR = join(process.env.HOME || "~", "lota");
 const LOG_FILE = join(LOG_DIR, "agent.log");
 mkdirSync(LOG_DIR, { recursive: true });
 writeFileSync(LOG_FILE, ""); // clear on start
@@ -268,15 +268,15 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
     "",
     "── RULES ──",
     "  GITHUB TOKEN ACCESS:",
-    "    - Token file: ~/.lota/.github-token (read it with: cat ~/.lota/.github-token)",
-    "    - For curl API calls: TOKEN=$(cat ~/.lota/.github-token) && curl -H \"Authorization: token $TOKEN\" ...",
+    "    - Token file: ~/lota/.github-token (read it with: cat ~/lota/.github-token)",
+    "    - For curl API calls: TOKEN=$(cat ~/lota/.github-token) && curl -H \"Authorization: token $TOKEN\" ...",
     "    - Do NOT waste time looking for env vars, gh auth, or debugging auth. Just read the token file.",
     "",
     "  GIT RULES (MUST follow):",
     `    - git config user.name "${agentName}"`,
     `    - git config user.email "${repoOwner}@users.noreply.github.com"`,
     "    - Git credential helper is pre-configured. Just use plain URLs (git clone/push/pull work automatically).",
-    "    - If git clone fails, read token and use: git clone https://x-access-token:$(cat ~/.lota/.github-token)@github.com/OWNER/REPO.git",
+    "    - If git clone fails, read token and use: git clone https://x-access-token:$(cat ~/lota/.github-token)@github.com/OWNER/REPO.git",
     "",
     "  WORKSPACE & REPO RULES (priority order):",
     "    1. If a task has a workspace path AND it exists locally → cd into it. Then run `git pull` to make sure it's up to date.",
@@ -576,7 +576,7 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
 
     // Write token to a file so agent's Bash tool can read it
     // (Claude Code may sandbox env vars from Bash commands)
-    const tokenFile = join(process.env.HOME || "/root", ".lota", ".github-token");
+    const tokenFile = join(process.env.HOME || "/root", "lota", ".github-token");
     try {
       writeFileSync(tokenFile, config.githubToken, { mode: 0o600 });
     } catch { /* may fail in some environments */ }

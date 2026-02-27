@@ -197,13 +197,13 @@ If not configured, the daemon will guide the user through Telegram setup.
 sleep 5
 ```
 
-Read `~/.lota/agent.log` to confirm it started.
+Read `~/lota/agent.log` to confirm it started.
 
 **Report to user:**
 
 For auto mode:
 > "Lota is running in auto mode! Tasks execute immediately.
-> Watch progress: `cat ~/.lota/agent.log`"
+> Watch progress: `cat ~/lota/agent.log`"
 
 For supervised mode:
 > "Lota is running in supervised mode! You'll get Telegram notifications.

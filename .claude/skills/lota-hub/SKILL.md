@@ -141,7 +141,7 @@ lota("POST", "/tasks/<id>/comment", {"content": "..."})
 
 ## Monitoring (read-only)
 
-- Agent log: Read `~/.lota/agent.log` (last 50 lines)
+- Agent log: Read `~/lota/agent.log` (last 50 lines)
 - Agent status: `ps aux | grep daemon.js | grep -v grep`
 
 If agent isn't running, say: "Lota agent isn't running. Start it with `/lota-agent` in another terminal."
