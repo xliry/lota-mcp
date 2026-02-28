@@ -8,14 +8,14 @@ export interface WorktreeInfo {
   originalWorkspace: string;
 }
 
-export interface MergeResult {
+interface MergeResult {
   success: boolean;
   hasConflicts: boolean;
   output: string;
 }
 
 /** Check if a directory is a git repository. */
-export function isGitRepo(dir: string): boolean {
+function isGitRepo(dir: string): boolean {
   try {
     execSync("git rev-parse --git-dir", { cwd: dir, stdio: "ignore" });
     return true;
@@ -25,7 +25,7 @@ export function isGitRepo(dir: string): boolean {
 }
 
 /** Add `.worktrees/` to the workspace's .gitignore if not already present. */
-export function ensureWorktreeInGitignore(workspace: string): void {
+function ensureWorktreeInGitignore(workspace: string): void {
   const gitignorePath = join(workspace, ".gitignore");
   try {
     let content = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf-8") : "";
@@ -88,6 +88,12 @@ export function createWorktree(
 /**
  * Merge a worktree branch back to the current HEAD of the main workspace,
  * then push to origin.
+ *
+ * Strategy:
+ * 1. Pull latest main so we're up-to-date with other agents' merges
+ * 2. Try direct merge
+ * 3. If conflict → rebase task branch on latest main, then fast-forward merge
+ * 4. If rebase also conflicts → true conflict, needs manual resolution
  */
 export function mergeWorktree(workspace: string, branch: string): MergeResult {
   // Stash any uncommitted changes in the workspace before merging
@@ -100,6 +106,24 @@ export function mergeWorktree(workspace: string, branch: string): MergeResult {
     });
     didStash = !stashOut.includes("No local changes");
   } catch { /* ignore — stash may fail if nothing to stash */ }
+
+  // Pull latest main before merging — prevents conflicts from other agents' recent pushes
+  try {
+    execSync("git pull --ff-only origin main", {
+      cwd: workspace,
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+  } catch {
+    // If ff-only fails, try regular pull
+    try {
+      execSync("git pull origin main --no-edit", {
+        cwd: workspace,
+        encoding: "utf-8",
+        stdio: "pipe",
+      });
+    } catch { /* ignore — we'll try merge anyway */ }
+  }
 
   try {
     const output = execSync(`git merge "${branch}" --no-edit`, {
@@ -127,14 +151,90 @@ export function mergeWorktree(workspace: string, branch: string): MergeResult {
   } catch (e) {
     const msg = String((e as Error).message || e);
     const hasConflicts = msg.includes("CONFLICT") || msg.toLowerCase().includes("conflict");
+
     if (hasConflicts) {
+      // Abort the failed merge
       try {
         execSync("git merge --abort", { cwd: workspace, stdio: "pipe" });
       } catch { /* ignore */ }
+
+      // Try rebase: update the task branch to include latest main, then fast-forward merge
+      const rebaseResult = tryRebaseThenMerge(workspace, branch);
+      if (rebaseResult) {
+        if (didStash) try { execSync("git stash pop", { cwd: workspace, stdio: "pipe" }); } catch { /* ignore */ }
+        return rebaseResult;
+      }
     }
-    // Restore stashed changes even on failure
+
+    // Restore stashed changes on failure
     if (didStash) try { execSync("git stash pop", { cwd: workspace, stdio: "pipe" }); } catch { /* ignore */ }
     return { success: false, hasConflicts, output: msg };
+  }
+}
+
+/**
+ * Attempt to rebase a task branch onto latest main and then fast-forward merge.
+ * Returns MergeResult on success/push-failure, or null if rebase itself conflicts.
+ */
+function tryRebaseThenMerge(workspace: string, branch: string): MergeResult | null {
+  // Get the worktree path for this branch to run rebase there
+  const worktreesDir = join(workspace, ".worktrees");
+  let worktreePath: string | null = null;
+
+  // Find the worktree directory that has this branch checked out
+  try {
+    const listOut = execSync("git worktree list --porcelain", {
+      cwd: workspace,
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+    for (const block of listOut.split("\n\n")) {
+      if (block.includes(`branch refs/heads/${branch}`)) {
+        const pathLine = block.split("\n").find(l => l.startsWith("worktree "));
+        if (pathLine) worktreePath = pathLine.replace("worktree ", "");
+        break;
+      }
+    }
+  } catch { /* ignore */ }
+
+  if (!worktreePath || !existsSync(worktreePath)) return null;
+
+  // Rebase the task branch on latest main
+  try {
+    execSync("git rebase main", {
+      cwd: worktreePath,
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+  } catch {
+    // Rebase conflicts — true conflict, abort and return null
+    try { execSync("git rebase --abort", { cwd: worktreePath, stdio: "pipe" }); } catch { /* ignore */ }
+    return null;
+  }
+
+  // Rebase succeeded — now fast-forward merge on main
+  try {
+    const output = execSync(`git merge "${branch}" --ff-only`, {
+      cwd: workspace,
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+
+    // Push
+    try {
+      execSync("git push origin HEAD", { cwd: workspace, stdio: "pipe" });
+    } catch (pushErr) {
+      return {
+        success: false,
+        hasConflicts: false,
+        output: `Rebase+merge succeeded but push failed: ${(pushErr as Error).message}`,
+      };
+    }
+
+    return { success: true, hasConflicts: false, output: `Rebased and merged: ${String(output)}` };
+  } catch (e) {
+    // Fast-forward failed after rebase — shouldn't happen but handle it
+    return null;
   }
 }
 

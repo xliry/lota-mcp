@@ -1,4 +1,3 @@
-export const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
 export const GITHUB_REPO = process.env.GITHUB_REPO || "";
 export const AGENT_NAME = process.env.AGENT_NAME || "";
 
@@ -17,10 +16,10 @@ const LABEL = {
 
 const META_VERSION = "v1";
 
-export type TaskStatus = "assigned" | "planned" | "approved" | "in-progress" | "completed" | "failed";
-export type TaskPriority = "low" | "medium" | "high";
+type TaskStatus = "assigned" | "planned" | "approved" | "in-progress" | "completed" | "failed";
+type TaskPriority = "low" | "medium" | "high";
 
-export interface Task {
+interface Task {
   id: number;
   number: number;
   title: string;
@@ -33,7 +32,7 @@ export interface Task {
   updatedAt?: string;
 }
 
-export interface LotaError {
+interface LotaError {
   error: string;
   code: string;
   details?: unknown;
@@ -42,6 +41,12 @@ export interface LotaError {
 // ── GitHub API fetch wrapper (with retry + backoff) ─────────
 
 const MAX_RETRIES = 3;
+const MS_PER_SECOND = 1000;
+const MS_PER_MINUTE = 60_000;
+const RATE_LIMIT_CRITICAL = 20;
+const RATE_LIMIT_LOW = 100;
+const RATE_LIMIT_BACKOFF_BUFFER_MS = 5_000;
+const RATE_LIMIT_MAX_WAIT_MS = 5 * MS_PER_MINUTE;
 const BASE_DELAY_MS = 1000;
 
 // ── Rate limit tracking ──────────────────────────────────────
@@ -67,22 +72,22 @@ function updateRateLimit(headers: Headers): void {
 
   rateLimitInfo = { remaining, limit, reset, updatedAt: Date.now() };
 
-  const resetIn = Math.max(0, Math.round((reset * 1000 - Date.now()) / 60000));
-  if (remaining < 20) {
+  const resetIn = Math.max(0, Math.round((reset * MS_PER_SECOND - Date.now()) / MS_PER_MINUTE));
+  if (remaining < RATE_LIMIT_CRITICAL) {
     console.warn(`\u26a0\ufe0f  GitHub rate limit CRITICAL: ${remaining}/${limit} remaining (resets in ${resetIn}m)`);
-  } else if (remaining < 100) {
+  } else if (remaining < RATE_LIMIT_LOW) {
     console.warn(`\u26a0\ufe0f  GitHub rate limit low: ${remaining}/${limit} remaining (resets in ${resetIn}m)`);
   }
 }
 
 async function gh(path: string, opts: RequestInit = {}): Promise<unknown> {
   // Auto backoff when rate limit is critically low
-  if (rateLimitInfo && rateLimitInfo.remaining < 20) {
-    const waitUntil = rateLimitInfo.reset * 1000;
-    const waitMs = Math.max(0, waitUntil - Date.now()) + 5000; // 5s buffer
-    const waitMin = Math.round(waitMs / 60000);
+  if (rateLimitInfo && rateLimitInfo.remaining < RATE_LIMIT_CRITICAL) {
+    const waitUntil = rateLimitInfo.reset * MS_PER_SECOND;
+    const waitMs = Math.max(0, waitUntil - Date.now()) + RATE_LIMIT_BACKOFF_BUFFER_MS;
+    const waitMin = Math.round(waitMs / MS_PER_MINUTE);
     console.warn(`\u26a0\ufe0f  Rate limit critical (${rateLimitInfo.remaining} left) — backing off ${waitMin}m`);
-    await new Promise(r => setTimeout(r, Math.min(waitMs, 5 * 60 * 1000))); // cap at 5m
+    await new Promise(r => setTimeout(r, Math.min(waitMs, RATE_LIMIT_MAX_WAIT_MS)));
   }
 
   let lastError: Error | null = null;
@@ -119,7 +124,7 @@ async function gh(path: string, opts: RequestInit = {}): Promise<unknown> {
         );
       }
 
-      try { return JSON.parse(text); } catch (e) { console.warn(`[non-critical] GitHub response is not JSON, returning raw text: ${(e as Error).message}`); return text; }
+      try { return JSON.parse(text); } catch { return text; }
     } catch (e) {
       lastError = e as Error;
       // Only retry on network errors, not on 4xx
@@ -140,13 +145,13 @@ function parseMetadata(body: string, type: string): Record<string, unknown> | nu
   const vRe = new RegExp(`<!-- lota:${META_VERSION}:${type} (\\{.*?\\}) -->`, "s");
   const vMatch = body.match(vRe);
   if (vMatch) {
-    try { return JSON.parse(vMatch[1]); } catch (e) { console.warn(`[non-critical] failed to parse versioned ${type} metadata: ${(e as Error).message}`); }
+    try { return JSON.parse(vMatch[1]); } catch { /* malformed metadata — skip */ }
   }
   // Fallback: legacy format <!-- lota:plan {...} -->
   const re = new RegExp(`<!-- lota:${type} (\\{.*?\\}) -->`, "s");
   const m = body.match(re);
   if (!m) return null;
-  try { return JSON.parse(m[1]); } catch (e) { console.warn(`[non-critical] failed to parse legacy ${type} metadata: ${(e as Error).message}`); return null; }
+  try { return JSON.parse(m[1]); } catch { return null; }
 }
 
 function formatMetadata(type: string, data: Record<string, unknown>, humanText: string): string {
@@ -156,11 +161,11 @@ function formatMetadata(type: string, data: Record<string, unknown>, humanText: 
 function parseBodyMeta(body: string): Record<string, unknown> {
   // Try versioned first
   const vMatch = body.match(new RegExp(`<!-- lota:${META_VERSION}:meta (\\{.*?\\}) -->`, "s"));
-  if (vMatch) { try { return JSON.parse(vMatch[1]); } catch (e) { console.warn(`[non-critical] failed to parse versioned body metadata: ${(e as Error).message}`); } }
+  if (vMatch) { try { return JSON.parse(vMatch[1]); } catch { /* malformed metadata — skip */ } }
   // Fallback legacy
   const m = body.match(/<!-- lota:meta (\{.*?\}) -->/s);
   if (!m) return {};
-  try { return JSON.parse(m[1]); } catch (e) { console.warn(`[non-critical] failed to parse legacy body metadata: ${(e as Error).message}`); return {}; }
+  try { return JSON.parse(m[1]); } catch { return {}; }
 }
 
 // ── Label helpers ───────────────────────────────────────────

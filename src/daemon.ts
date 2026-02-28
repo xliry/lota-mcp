@@ -8,6 +8,10 @@ import { createWorktree, mergeWorktree, cleanupWorktree, cleanStaleWorktrees, ty
 import { tgSend, tgSetupChatId, tgWaitForApproval } from "./telegram.js";
 
 
+// ── Time & size constants ────────────────────────────────────────
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const BUILD_OUTPUT_TRUNCATE = 1000;
+
 // ── Early name detection (before log init) ──────────────────────
 // Quick pre-scan of argv for --name/-n so LOG_FILE is set correctly at module level.
 function _earlyGetName(): string {
@@ -49,7 +53,7 @@ function parseArgs(): AgentConfig {
   let mode: AgentMode = "auto";
   let maxTasksPerCycle = 1;
   let singlePhaseOverride: boolean | null = null;
-  let timeout = 600;
+  let timeout = 900;
   let maxRssMb = 1024;
   let nameOverride = "";
 
@@ -170,7 +174,10 @@ const LOG_DIR = join(process.env.HOME || "~", "lota");
 const LOG_FILE = (_EARLY_AGENT_NAME && _EARLY_AGENT_NAME !== "lota")
   ? join(LOG_DIR, `agent-${_EARLY_AGENT_NAME}.log`)
   : join(LOG_DIR, "agent.log");
-const LOG_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+const BYTES_PER_MB = 1024 * 1024;
+const LOG_MAX_BYTES = 5 * BYTES_PER_MB;
+const MEMORY_WARNING_MB = 500;
+const MEMORY_CRITICAL_MB = 800;
 
 const AGENTS_DIR = join(LOG_DIR, ".agents");
 mkdirSync(LOG_DIR, { recursive: true });
@@ -219,19 +226,19 @@ const err = (msg: string) => out(`${PRE} \x1b[90m${time()}\x1b[0m \x1b[31m✗ ${
 
 function logMemory(label: string, config: AgentConfig): void {
   const mem = process.memoryUsage();
-  const heapUsedMb = Math.round(mem.heapUsed / 1024 / 1024);
-  const heapTotalMb = Math.round(mem.heapTotal / 1024 / 1024);
-  const rssMb = Math.round(mem.rss / 1024 / 1024);
+  const heapUsedMb = Math.round(mem.heapUsed / BYTES_PER_MB);
+  const heapTotalMb = Math.round(mem.heapTotal / BYTES_PER_MB);
+  const rssMb = Math.round(mem.rss / BYTES_PER_MB);
 
-  if (heapUsedMb > 800) {
+  if (heapUsedMb > MEMORY_CRITICAL_MB) {
     err(`🔴 Critical memory [${label}]: ${heapUsedMb}MB heap used / ${heapTotalMb}MB total, RSS: ${rssMb}MB — consider restarting`);
     const maybeGc = (global as { gc?: () => void }).gc;
     if (typeof maybeGc === "function") {
       maybeGc();
-      const afterMb = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+      const afterMb = Math.round(process.memoryUsage().heapUsed / BYTES_PER_MB);
       dim(`  GC freed ${heapUsedMb - afterMb}MB (heap now ${afterMb}MB)`);
     }
-  } else if (heapUsedMb > 500) {
+  } else if (heapUsedMb > MEMORY_WARNING_MB) {
     log(`⚠️ High memory [${label}]: ${heapUsedMb}MB heap used / ${heapTotalMb}MB total, RSS: ${rssMb}MB`);
   } else {
     dim(`Memory [${label}]: heap ${heapUsedMb}/${heapTotalMb}MB, RSS: ${rssMb}MB`);
@@ -567,7 +574,7 @@ function loadCommentBaselines(): void {
     if (!existsSync(BASELINES_FILE)) return;
     const raw = readFileSync(BASELINES_FILE, "utf-8");
     const data = JSON.parse(raw) as Record<string, BaselineEntry>;
-    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - SEVEN_DAYS_MS;
     let loaded = 0;
     for (const [idStr, entry] of Object.entries(data)) {
       const id = parseInt(idStr, 10);
@@ -585,7 +592,7 @@ function loadCommentBaselines(): void {
 function saveCommentBaselines(): void {
   try {
     const now = Date.now();
-    const cutoff = now - 7 * 24 * 60 * 60 * 1000;
+    const cutoff = now - SEVEN_DAYS_MS;
     const data: Record<string, BaselineEntry> = {};
 
     // Save all current in-memory entries with a fresh timestamp
@@ -822,7 +829,17 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
 
 // ── Event formatter (stream-json → readable log) ────────────────
 
-function formatEvent(event: any) {
+interface ClaudeEvent {
+  type: string;
+  subtype?: string;
+  content_block?: { type?: string; name?: string };
+  message?: { content?: Array<{ type: string; name?: string; text?: string; input?: Record<string, unknown> }> };
+  cost_usd?: number;
+  duration_ms?: number;
+  num_turns?: number;
+}
+
+function formatEvent(event: ClaudeEvent) {
   const t = time();
   const write = (icon: string, msg: string) => {
     const plain = `[${t}] ${icon} ${msg}`;
@@ -855,7 +872,7 @@ function formatEvent(event: any) {
         } else if (name === "Read") {
           write("📖", `Read: ${input.file_path || ""}`);
         } else if (name === "Bash") {
-          const cmd = (input.command || "").slice(0, 120);
+          const cmd = String(input.command || "").slice(0, 120);
           write("💻", `Bash: ${cmd}`);
         } else if (name === "Glob" || name === "Grep") {
           write("🔍", `${name}: ${input.pattern || ""}`);
@@ -966,7 +983,7 @@ function verifyBuild(workspace: string): Promise<{ success: boolean; output: str
       if (code === 0) {
         resolve({ success: true, output: stdout.slice(-500) });
       } else {
-        resolve({ success: false, output: (stderr || stdout || "Unknown build error").slice(-1000) });
+        resolve({ success: false, output: (stderr || stdout || "Unknown build error").slice(-BUILD_OUTPUT_TRUNCATE) });
       }
     });
 
@@ -1092,7 +1109,7 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
       ...work,
       tasks: work.tasks.map(t => ({
         ...t,
-        workspace: t.workspace ? worktreeInfo!.worktreePath : t.workspace,
+        workspace: t.workspace && worktreeInfo ? worktreeInfo.worktreePath : t.workspace,
       })),
     } : work;
     args.push("-p", buildPrompt(config.agentName, promptWork, config));
@@ -1147,12 +1164,13 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
       }, 5000);
       forceKill.unref();
 
-      // Post a warning comment on all tasks being processed
+      // Post a warning comment and reset task status so it gets picked up again
       const taskIds = work.tasks.map((t) => t.id);
       for (const taskId of taskIds) {
         lota("POST", `/tasks/${taskId}/comment`, {
           content: `⚠️ **Agent timeout**: Claude subprocess was killed after ${config.timeout}s without completing. The task will be retried on the next cycle.`,
         }).catch(() => { /* best-effort */ });
+        lota("POST", `/tasks/${taskId}/status`, { status: "assigned" }).catch(() => { /* best-effort */ });
       }
 
       // Clean up worktree on timeout

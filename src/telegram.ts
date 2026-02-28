@@ -6,7 +6,7 @@ interface TelegramConfig {
   configPath: string;
 }
 
-export async function tgApi(botToken: string, method: string, body?: Record<string, unknown>): Promise<unknown> {
+async function tgApi(botToken: string, method: string, body?: Record<string, unknown>): Promise<unknown> {
   const res = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -27,7 +27,7 @@ export async function tgSend(config: TelegramConfig, text: string, inlineKeyboar
   if (inlineKeyboard) {
     body.reply_markup = { inline_keyboard: inlineKeyboard };
   }
-  return tgApi(config.telegramBotToken, "sendMessage", body);
+  return await tgApi(config.telegramBotToken, "sendMessage", body);
 }
 
 export async function tgSetupChatId(config: TelegramConfig): Promise<string> {
@@ -48,7 +48,8 @@ export async function tgSetupChatId(config: TelegramConfig): Promise<string> {
         const chatId = String(update.message.chat.id);
         // Save to .mcp.json
         if (config.configPath) {
-          const cfg = JSON.parse(readFileSync(config.configPath, "utf-8"));
+          let cfg: { mcpServers?: { lota?: { env?: Record<string, string> } } };
+          try { cfg = JSON.parse(readFileSync(config.configPath, "utf-8")); } catch { continue; }
           if (cfg.mcpServers?.lota?.env) {
             cfg.mcpServers.lota.env.TELEGRAM_CHAT_ID = chatId;
             writeFileSync(config.configPath, JSON.stringify(cfg, null, 2) + "\n");
