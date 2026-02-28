@@ -1060,7 +1060,16 @@ async function main() {
 
       console.log("  ─────────────────────────────────────");
       const cycleStart = Date.now();
-      const code = await runClaude(config, work);
+      let code: number;
+      try {
+        code = await runClaude(config, work);
+      } catch (e) {
+        err(`runClaude threw an unexpected error: ${(e as Error).message ?? String(e)}`);
+        busy = false;
+        if (config.once) break;
+        await sleep(config.interval);
+        continue;
+      }
       const elapsed = Math.round((Date.now() - cycleStart) / 1000);
       console.log("  ─────────────────────────────────────");
 
