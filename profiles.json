@@ -1,0 +1,62 @@
+[
+  {
+    "name": "George Thomas",
+    "email": "george.thomas265@hotmail.com",
+    "age": 66,
+    "city": "Denver"
+  },
+  {
+    "name": "Tina Taylor",
+    "email": "tina.taylor936@hotmail.com",
+    "age": 48,
+    "city": "Philadelphia"
+  },
+  {
+    "name": "Steve Davis",
+    "email": "steve.davis530@hotmail.com",
+    "age": 46,
+    "city": "Chicago"
+  },
+  {
+    "name": "Fiona Davis",
+    "email": "fiona.davis540@example.com",
+    "age": 34,
+    "city": "Nashville"
+  },
+  {
+    "name": "Hannah Jones",
+    "email": "hannah.jones648@example.com",
+    "age": 34,
+    "city": "San Antonio"
+  },
+  {
+    "name": "Diana Davis",
+    "email": "diana.davis896@outlook.com",
+    "age": 36,
+    "city": "Fort Worth"
+  },
+  {
+    "name": "Charlie Miller",
+    "email": "charlie.miller650@hotmail.com",
+    "age": 25,
+    "city": "Philadelphia"
+  },
+  {
+    "name": "Paula Wilson",
+    "email": "paula.wilson454@outlook.com",
+    "age": 39,
+    "city": "Fort Worth"
+  },
+  {
+    "name": "Tina Martinez",
+    "email": "tina.martinez648@outlook.com",
+    "age": 59,
+    "city": "San Jose"
+  },
+  {
+    "name": "Michael Harris",
+    "email": "michael.harris292@yahoo.com",
+    "age": 55,
+    "city": "Los Angeles"
+  }
+]
