@@ -218,8 +218,18 @@ interface WorkData {
   commentUpdates: CommentUpdate[];
 }
 
+// ── Comment baseline persistence ────────────────────────────────
+
+const BASELINES_FILE = join(process.env.HOME || "/root", "lota", ".comment-baselines.json");
+
+interface BaselineEntry {
+  count: number;
+  ts: number; // ms timestamp of last update (for 7-day cleanup)
+}
+
 // Track comment counts for in-progress tasks
 const lastSeenComments = new Map<number, number>();
+loadCommentBaselines();
 
 async function checkForWork(config: AgentConfig): Promise<WorkData | null> {
   // Set env vars so github.ts can use them
@@ -288,6 +298,9 @@ async function checkForWork(config: AgentConfig): Promise<WorkData | null> {
     if (!activeIds.has(id)) lastSeenComments.delete(id);
   }
 
+  // Persist baselines so newly-established baselines survive a restart
+  saveCommentBaselines();
+
   // Priority: comments > approved (execute) > assigned (plan)
   if (commentUpdates.length) {
     return { phase: "comments", tasks: [], commentUpdates };
@@ -326,6 +339,59 @@ async function refreshCommentBaselines(taskIds: number[]): Promise<void> {
       const count = task.comments?.length ?? 0;
       lastSeenComments.set(id, count);
     } catch (e) { dim(`[non-critical] refreshCommentBaselines failed for task #${id}: ${(e as Error).message}`); }
+  }
+  saveCommentBaselines();
+}
+
+function loadCommentBaselines(): void {
+  try {
+    if (!existsSync(BASELINES_FILE)) return;
+    const raw = readFileSync(BASELINES_FILE, "utf-8");
+    const data = JSON.parse(raw) as Record<string, BaselineEntry>;
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    let loaded = 0;
+    for (const [idStr, entry] of Object.entries(data)) {
+      const id = parseInt(idStr, 10);
+      if (isNaN(id)) continue;
+      if (entry.ts < cutoff) continue; // skip stale entries
+      lastSeenComments.set(id, entry.count);
+      loaded++;
+    }
+    if (loaded > 0) dim(`[baselines] loaded ${loaded} comment baseline(s) from disk`);
+  } catch (e) {
+    dim(`[non-critical] loadCommentBaselines: ${(e as Error).message}`);
+  }
+}
+
+function saveCommentBaselines(): void {
+  try {
+    const now = Date.now();
+    const cutoff = now - 7 * 24 * 60 * 60 * 1000;
+    const data: Record<string, BaselineEntry> = {};
+
+    // Save all current in-memory entries with a fresh timestamp
+    for (const [id, count] of lastSeenComments.entries()) {
+      data[String(id)] = { count, ts: now };
+    }
+
+    // Preserve recently-seen entries from the existing file that are no longer
+    // in memory (e.g. tasks pruned by the cleanup loop) but haven't expired yet
+    try {
+      if (existsSync(BASELINES_FILE)) {
+        const existing = JSON.parse(readFileSync(BASELINES_FILE, "utf-8")) as Record<string, BaselineEntry>;
+        for (const [idStr, entry] of Object.entries(existing)) {
+          if (!data[idStr] && entry.ts >= cutoff) {
+            data[idStr] = entry;
+          }
+        }
+      }
+    } catch { /* ignore read errors — best effort */ }
+
+    const tmpFile = BASELINES_FILE + ".tmp";
+    writeFileSync(tmpFile, JSON.stringify(data, null, 2));
+    renameSync(tmpFile, BASELINES_FILE);
+  } catch (e) {
+    dim(`[non-critical] saveCommentBaselines: ${(e as Error).message}`);
   }
 }
 
