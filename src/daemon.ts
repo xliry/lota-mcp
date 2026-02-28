@@ -331,6 +331,22 @@ async function refreshCommentBaselines(taskIds: number[]): Promise<void> {
 
 // ── Prompt ──────────────────────────────────────────────────────
 
+function sanitizeTaskBody(body: string): string {
+  // Strip HTML comments (<!-- ... -->)
+  let cleaned = body.replace(/<!--[\s\S]*?-->/g, "");
+  // Strip image markdown (![alt](url))
+  cleaned = cleaned.replace(/!\[([^\]]*)\]\([^)]*\)/g, "[image: $1]");
+  // Collapse excessive blank lines
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
+
+  const MAX = 2000;
+  const HEAD = 1000;
+  const TAIL = 500;
+  if (cleaned.length <= MAX) return cleaned;
+
+  return cleaned.slice(0, HEAD) + "\n\n... [truncated] ...\n\n" + cleaned.slice(-TAIL);
+}
+
 function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): string {
   const repoOwner = config.githubRepo.split("/")[0] || agentName;
   const lines = [
@@ -417,7 +433,7 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
         lines.push(`  Workspace: ${t.workspace} (project is here — DO NOT clone)`);
       }
       if (t.body) {
-        lines.push("", "  ── TASK BODY ──", t.body, "  ── END BODY ──");
+        lines.push("", "  ── TASK BODY ──", sanitizeTaskBody(t.body), "  ── END BODY ──");
       }
     }
     lines.push(
@@ -448,7 +464,7 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
         lines.push(`  Workspace: ${t.workspace} (project is here — DO NOT clone)`);
       }
       if (t.body) {
-        lines.push("", "  ── TASK BODY ──", t.body, "  ── END BODY ──");
+        lines.push("", "  ── TASK BODY ──", sanitizeTaskBody(t.body), "  ── END BODY ──");
       }
     }
     lines.push(
@@ -477,7 +493,7 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
         lines.push(`  Workspace: ${t.workspace} (project is here — DO NOT clone)`);
       }
       if (t.body) {
-        lines.push("", "  ── TASK BODY ──", t.body, "  ── END BODY ──");
+        lines.push("", "  ── TASK BODY ──", sanitizeTaskBody(t.body), "  ── END BODY ──");
       }
       if (t.plan?.goals?.length) {
         lines.push("", "  ── GOALS FROM PLAN ──");
