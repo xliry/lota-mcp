@@ -25,6 +25,7 @@ interface AgentConfig {
   telegramBotToken: string;
   telegramChatId: string;
   timeout: number;
+  maxRssMb: number;
 }
 
 function parseArgs(): AgentConfig {
@@ -37,6 +38,7 @@ function parseArgs(): AgentConfig {
   let maxTasksPerCycle = 1;
   let singlePhaseOverride: boolean | null = null;
   let timeout = 600;
+  let maxRssMb = 1024;
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -49,6 +51,7 @@ function parseArgs(): AgentConfig {
       case "--single-phase": singlePhaseOverride = true; break;
       case "--no-single-phase": singlePhaseOverride = false; break;
       case "--timeout": timeout = parseInt(args[++i], 10); break;
+      case "--max-rss": maxRssMb = parseInt(args[++i], 10); break;
       case "--help": case "-h":
         console.log(`Usage: lota-agent [options]
 
@@ -140,7 +143,7 @@ Options:
     process.exit(1);
   }
 
-  return { configPath, model, interval, once, mode, singlePhase, agentName, maxTasksPerCycle, githubToken, githubRepo, telegramBotToken, telegramChatId, timeout };
+  return { configPath, model, interval, once, mode, singlePhase, agentName, maxTasksPerCycle, githubToken, githubRepo, telegramBotToken, telegramChatId, timeout, maxRssMb };
 }
 
 // ── Logging (stdout + file) ──────────────────────────────────────
@@ -189,6 +192,34 @@ const log = (msg: string) => out(`${PRE} \x1b[90m${time()}\x1b[0m ${msg}`, `[${t
 const ok = (msg: string) => out(`${PRE} \x1b[90m${time()}\x1b[0m \x1b[32m✓ ${msg}\x1b[0m`, `[${time()}] ✓ ${msg}`);
 const dim = (msg: string) => out(`${PRE} \x1b[90m${time()} ${msg}\x1b[0m`, `[${time()}] ${msg}`);
 const err = (msg: string) => out(`${PRE} \x1b[90m${time()}\x1b[0m \x1b[31m✗ ${msg}\x1b[0m`, `[${time()}] ✗ ${msg}`);
+
+// ── Memory monitoring ────────────────────────────────────────────
+
+function logMemory(label: string, config: AgentConfig): void {
+  const mem = process.memoryUsage();
+  const heapUsedMb = Math.round(mem.heapUsed / 1024 / 1024);
+  const heapTotalMb = Math.round(mem.heapTotal / 1024 / 1024);
+  const rssMb = Math.round(mem.rss / 1024 / 1024);
+
+  if (heapUsedMb > 800) {
+    err(`🔴 Critical memory [${label}]: ${heapUsedMb}MB heap used / ${heapTotalMb}MB total, RSS: ${rssMb}MB — consider restarting`);
+    const maybeGc = (global as { gc?: () => void }).gc;
+    if (typeof maybeGc === "function") {
+      maybeGc();
+      const afterMb = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+      dim(`  GC freed ${heapUsedMb - afterMb}MB (heap now ${afterMb}MB)`);
+    }
+  } else if (heapUsedMb > 500) {
+    log(`⚠️ High memory [${label}]: ${heapUsedMb}MB heap used / ${heapTotalMb}MB total, RSS: ${rssMb}MB`);
+  } else {
+    dim(`Memory [${label}]: heap ${heapUsedMb}/${heapTotalMb}MB, RSS: ${rssMb}MB`);
+  }
+
+  if (rssMb > config.maxRssMb) {
+    err(`🔴 RSS ${rssMb}MB exceeds limit ${config.maxRssMb}MB — graceful exit (code 42)`);
+    process.exit(42);
+  }
+}
 
 // ── Pre-check (zero-cost, no LLM) ──────────────────────────────
 
@@ -1076,6 +1107,7 @@ async function main() {
       if (emptyPolls === 1 || emptyPolls % 10 === 0) {
         dim(`No pending work (${emptyPolls} checks) — next in ${nextInterval}s`);
       }
+      if (pollCycles % 10 === 0) logMemory("Periodic", config);
       if (config.once) break;
       await sleep(nextInterval);
       continue;
@@ -1125,6 +1157,7 @@ async function main() {
       }
 
       console.log("  ─────────────────────────────────────");
+      logMemory("Pre-Claude", config);
       const cycleStart = Date.now();
       let code: number;
       try {
@@ -1137,6 +1170,7 @@ async function main() {
         continue;
       }
       const elapsed = Math.round((Date.now() - cycleStart) / 1000);
+      logMemory("Post-Claude", config);
       console.log("  ─────────────────────────────────────");
 
       if (code === 0) {
@@ -1212,13 +1246,14 @@ async function main() {
 
     if (config.once) break;
 
-    // Log rate limit status every 10 cycles
+    // Log rate limit status and memory every 10 cycles
     if (pollCycles % 10 === 0) {
       const rl = getRateLimitInfo();
       if (rl) {
         const resetIn = Math.max(0, Math.round((rl.reset * 1000 - Date.now()) / 60000));
         dim(`Rate limit: ${rl.remaining}/${rl.limit} remaining (resets in ${resetIn}m)`);
       }
+      logMemory("Periodic", config);
     }
 
     dim(`Polling in ${config.interval}s...`);
