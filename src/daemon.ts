@@ -313,8 +313,7 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
     "  GIT RULES (MUST follow):",
     `    - git config user.name "${agentName}"`,
     `    - git config user.email "${repoOwner}@users.noreply.github.com"`,
-    "    - Git credential helper is pre-configured. Just use plain URLs (git clone/push/pull work automatically).",
-    "    - If git clone fails, read token and use: git clone https://x-access-token:$(cat ~/lota/.github-token)@github.com/OWNER/REPO.git",
+    "    - For git operations, use: git clone https://x-access-token:$(cat ~/lota/.github-token)@github.com/OWNER/REPO.git",
     "",
     "  GIT PUSH RULES:",
     "    - If push fails with 403/permission denied:",
@@ -671,10 +670,8 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
     cleanEnv.GITHUB_REPO = config.githubRepo;
     cleanEnv.AGENT_NAME = config.agentName;
 
-    // Configure git to use GITHUB_TOKEN for authentication
-    // Set global git config so all git operations (clone/push/pull) work automatically
+    // Configure git identity
     try {
-      execSync(`git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=${config.githubToken}"; }; f'`, { stdio: "ignore" });
       execSync(`git config --global user.name "${config.agentName}"`, { stdio: "ignore" });
       execSync(`git config --global user.email "${config.githubRepo.split("/")[0]}@users.noreply.github.com"`, { stdio: "ignore" });
     } catch { /* git config may fail in some environments */ }
@@ -719,14 +716,6 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
       };
       writeFileSync(claudeSettingsFile, JSON.stringify(mergedSettings, null, 2) + "\n");
     } catch { /* may fail in some environments */ }
-
-    // Also pass via env as backup
-    cleanEnv.GIT_ASKPASS = "/bin/echo";
-    cleanEnv.GIT_CONFIG_COUNT = "2";
-    cleanEnv.GIT_CONFIG_KEY_0 = "credential.https://github.com.helper";
-    cleanEnv.GIT_CONFIG_VALUE_0 = `!f() { echo "username=x-access-token"; echo "password=${config.githubToken}"; }; f`;
-    cleanEnv.GIT_CONFIG_KEY_1 = "credential.helper";
-    cleanEnv.GIT_CONFIG_VALUE_1 = "";
 
     const isRoot = process.getuid?.() === 0;
     const args = [
