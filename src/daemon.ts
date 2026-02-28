@@ -472,19 +472,29 @@ function resolveWorkspace(work: WorkData): string {
 
   const home = resolve(process.env.HOME || "/root");
 
-  // Reject absolute paths and path traversal attempts
-  if (rawWorkspace.startsWith("/") || rawWorkspace.includes("..")) {
-    err(`Workspace path rejected (unsafe): ${rawWorkspace}`);
+  // Reject path traversal attempts
+  if (rawWorkspace.includes("..")) {
+    err(`Workspace path rejected (path traversal): ${rawWorkspace}`);
     return process.cwd();
   }
 
-  const candidate = resolve(home, rawWorkspace);
+  // Expand ~/... to absolute path
+  const expanded = rawWorkspace.startsWith("~/")
+    ? join(home, rawWorkspace.slice(2))
+    : rawWorkspace;
 
-  // Ensure resolved path stays under home directory
-  if (!candidate.startsWith(home + "/")) {
-    err(`Workspace path rejected (escapes home): ${rawWorkspace}`);
+  // For absolute paths, ensure they stay under $HOME
+  if (expanded.startsWith("/")) {
+    if (!expanded.startsWith(home + "/") && expanded !== home) {
+      err(`Workspace path rejected (escapes home): ${rawWorkspace}`);
+      return process.cwd();
+    }
+    const candidate = resolve(expanded);
+    if (existsSync(candidate)) return candidate;
     return process.cwd();
   }
+
+  const candidate = resolve(home, expanded);
 
   if (existsSync(candidate)) return candidate;
   return process.cwd();
