@@ -23,6 +23,7 @@ interface AgentConfig {
   githubRepo: string;
   telegramBotToken: string;
   telegramChatId: string;
+  timeout: number;
 }
 
 function parseArgs(): AgentConfig {
@@ -34,6 +35,7 @@ function parseArgs(): AgentConfig {
   let mode: AgentMode = "auto";
   let maxTasksPerCycle = 1;
   let singlePhaseOverride: boolean | null = null;
+  let timeout = 600;
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -45,6 +47,7 @@ function parseArgs(): AgentConfig {
       case "--max-tasks": case "-t": maxTasksPerCycle = Math.max(1, parseInt(args[++i], 10)); break;
       case "--single-phase": singlePhaseOverride = true; break;
       case "--no-single-phase": singlePhaseOverride = false; break;
+      case "--timeout": timeout = parseInt(args[++i], 10); break;
       case "--help": case "-h":
         console.log(`Usage: lota-agent [options]
 
@@ -56,6 +59,7 @@ Options:
   -m, --model <model>   Claude model (default: sonnet)
   -i, --interval <sec>  Poll interval in seconds (default: 15)
   -t, --max-tasks <n>   Max tasks per execute cycle (default: 1)
+  --timeout <sec>       Claude subprocess timeout in seconds (default: 600)
   --mode <auto|supervised>  auto = direct execution, supervised = Telegram approval (default: auto)
   --single-phase        Merge plan+execute into one Claude invocation (default: on in auto mode)
   --no-single-phase     Use separate plan→approve→execute phases even in auto mode
@@ -135,7 +139,7 @@ Options:
     process.exit(1);
   }
 
-  return { configPath, model, interval, once, mode, singlePhase, agentName, maxTasksPerCycle, githubToken, githubRepo, telegramBotToken, telegramChatId };
+  return { configPath, model, interval, once, mode, singlePhase, agentName, maxTasksPerCycle, githubToken, githubRepo, telegramBotToken, telegramChatId, timeout };
 }
 
 // ── Logging (stdout + file) ──────────────────────────────────────
@@ -775,6 +779,36 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
 
     currentProcess = child;
 
+    // ── Timeout guard ──────────────────────────────────────────────
+    let killed = false;
+    const timeoutMs = config.timeout * 1000;
+    const killTimer = setTimeout(() => {
+      killed = true;
+      err(`Claude process timed out after ${config.timeout}s — killed`);
+      child.kill("SIGTERM");
+
+      // Give the process 5 seconds to exit gracefully, then SIGKILL
+      const forceKill = setTimeout(() => {
+        if (currentProcess === child) {
+          child.kill("SIGKILL");
+        }
+      }, 5000);
+      forceKill.unref();
+
+      // Post a warning comment on all tasks being processed
+      const taskIds = work.tasks.map((t) => t.id);
+      for (const taskId of taskIds) {
+        lota("POST", `/tasks/${taskId}/comment`, {
+          content: `⚠️ **Agent timeout**: Claude subprocess was killed after ${config.timeout}s without completing. The task will be retried on the next cycle.`,
+        }).catch(() => { /* best-effort */ });
+      }
+
+      currentProcess = null;
+      busy = false;
+      resolve(1);
+    }, timeoutMs);
+    killTimer.unref();
+
     let jsonBuffer = "";
 
     child.stdout?.on("data", (d: Buffer) => {
@@ -805,12 +839,16 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
     });
 
     child.on("close", (code) => {
+      if (killed) return; // already handled by timeout
+      clearTimeout(killTimer);
       currentProcess = null;
       busy = false;
       resolve(code ?? 1);
     });
 
     child.on("error", (e) => {
+      if (killed) return; // already handled by timeout
+      clearTimeout(killTimer);
       currentProcess = null;
       busy = false;
       if ((e as NodeJS.ErrnoException).code === "ENOENT") {
