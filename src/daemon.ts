@@ -119,7 +119,7 @@ Options:
   if (!githubToken) {
     try {
       githubToken = execSync("gh auth token 2>/dev/null", { encoding: "utf-8" }).trim();
-    } catch { /* gh not installed or not logged in */ }
+    } catch (e) { dim(`[non-critical] gh auth token failed: ${(e as Error).message}`); }
   }
   if (!githubToken) {
     console.error("Error: GitHub token not found. Checked: .mcp.json, $GITHUB_TOKEN env, gh auth token");
@@ -169,7 +169,7 @@ function checkRotate(): void {
       logStream = createWriteStream(LOG_FILE, { flags: "a" });
       logStream.on("error", () => {});
     }
-  } catch { /* ignore */ }
+  } catch (e) { dim(`[non-critical] log rotation failed: ${(e as Error).message}`); }
 }
 
 const time = () => new Date().toLocaleTimeString("en-US", { hour12: false });
@@ -325,7 +325,7 @@ async function refreshCommentBaselines(taskIds: number[]): Promise<void> {
       const task = await lota("GET", `/tasks/${id}`) as { comments?: unknown[] };
       const count = task.comments?.length ?? 0;
       lastSeenComments.set(id, count);
-    } catch { /* best-effort */ }
+    } catch (e) { dim(`[non-critical] refreshCommentBaselines failed for task #${id}: ${(e as Error).message}`); }
   }
 }
 
@@ -652,7 +652,7 @@ function verifyBuild(workspace: string): Promise<{ success: boolean; output: str
     try {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
       if (pkg.scripts?.build) hasBuildScript = true;
-    } catch { /* invalid package.json */ }
+    } catch (e) { dim(`[non-critical] failed to parse package.json at ${pkgPath}: ${(e as Error).message}`); }
   }
 
   if (!hasBuildScript) {
@@ -730,7 +730,7 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
     const tokenFile = join(process.env.HOME || "/root", "lota", ".github-token");
     try {
       writeFileSync(tokenFile, config.githubToken, { mode: 0o600 });
-    } catch { /* may fail in some environments */ }
+    } catch (e) { dim(`[non-critical] failed to write token file: ${(e as Error).message}`); }
 
     // Ensure global Claude settings allow all tools — merge with existing settings
     // to avoid destroying user preferences like skipDangerousModePermissionPrompt
@@ -741,7 +741,7 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
       let existingSettings: Record<string, unknown> = {};
       try {
         existingSettings = JSON.parse(readFileSync(claudeSettingsFile, "utf-8"));
-      } catch { /* file doesn't exist or invalid JSON */ }
+      } catch (e) { dim(`[non-critical] failed to read ${claudeSettingsFile}: ${(e as Error).message}`); }
       const requiredPermissions = [
         "mcp__lota__lota",
         "Bash(*)",
@@ -764,7 +764,7 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
         },
       };
       writeFileSync(claudeSettingsFile, JSON.stringify(mergedSettings, null, 2) + "\n");
-    } catch { /* may fail in some environments */ }
+    } catch (e) { dim(`[non-critical] failed to write Claude settings to ${claudeSettingsFile}: ${(e as Error).message}`); }
 
     const isRoot = process.getuid?.() === 0;
     const args = [
@@ -799,7 +799,7 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
       let wsExistingSettings: Record<string, unknown> = {};
       try {
         wsExistingSettings = JSON.parse(readFileSync(wsSettingsFile, "utf-8"));
-      } catch { /* file doesn't exist or invalid JSON */ }
+      } catch (e) { dim(`[non-critical] failed to read workspace settings at ${wsSettingsFile}: ${(e as Error).message}`); }
       const wsRequiredPermissions = [
         "mcp__lota__lota", "Bash(*)", "Read(*)", "Write(*)",
         "Edit(*)", "Glob(*)", "Grep(*)", "Task(*)",
@@ -814,7 +814,7 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
           allow: wsMergedAllow,
         },
       }, null, 2) + "\n");
-    } catch { /* workspace may be read-only */ }
+    } catch (e) { dim(`[non-critical] failed to write workspace settings (workspace may be read-only): ${(e as Error).message}`); }
 
     const child = spawn("claude", args, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -1091,7 +1091,7 @@ async function main() {
                 await lota("POST", `/tasks/${t.id}/comment`, {
                   content: `⚠️ **Post-execution build verification failed**\n\n\`\`\`\n${build.output.slice(0, 500)}\n\`\`\`\n\nThe daemon detected a build failure after the agent completed. Manual review needed.`,
                 });
-              } catch { /* comment may fail */ }
+              } catch (e) { err(`Failed to post build warning comment on task #${t.id}: ${(e as Error).message}`); }
             }
           }
         }

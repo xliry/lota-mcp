@@ -118,7 +118,7 @@ async function gh(path: string, opts: RequestInit = {}): Promise<unknown> {
         );
       }
 
-      try { return JSON.parse(text); } catch { return text; }
+      try { return JSON.parse(text); } catch (e) { console.warn(`[non-critical] GitHub response is not JSON, returning raw text: ${(e as Error).message}`); return text; }
     } catch (e) {
       lastError = e as Error;
       // Only retry on network errors, not on 4xx
@@ -139,13 +139,13 @@ function parseMetadata(body: string, type: string): Record<string, unknown> | nu
   const vRe = new RegExp(`<!-- lota:${META_VERSION}:${type} (\\{.*?\\}) -->`, "s");
   const vMatch = body.match(vRe);
   if (vMatch) {
-    try { return JSON.parse(vMatch[1]); } catch { /* fall through */ }
+    try { return JSON.parse(vMatch[1]); } catch (e) { console.warn(`[non-critical] failed to parse versioned ${type} metadata: ${(e as Error).message}`); }
   }
   // Fallback: legacy format <!-- lota:plan {...} -->
   const re = new RegExp(`<!-- lota:${type} (\\{.*?\\}) -->`, "s");
   const m = body.match(re);
   if (!m) return null;
-  try { return JSON.parse(m[1]); } catch { return null; }
+  try { return JSON.parse(m[1]); } catch (e) { console.warn(`[non-critical] failed to parse legacy ${type} metadata: ${(e as Error).message}`); return null; }
 }
 
 function formatMetadata(type: string, data: Record<string, unknown>, humanText: string): string {
@@ -155,11 +155,11 @@ function formatMetadata(type: string, data: Record<string, unknown>, humanText: 
 function parseBodyMeta(body: string): Record<string, unknown> {
   // Try versioned first
   const vMatch = body.match(new RegExp(`<!-- lota:${META_VERSION}:meta (\\{.*?\\}) -->`, "s"));
-  if (vMatch) { try { return JSON.parse(vMatch[1]); } catch { /* fall through */ } }
+  if (vMatch) { try { return JSON.parse(vMatch[1]); } catch (e) { console.warn(`[non-critical] failed to parse versioned body metadata: ${(e as Error).message}`); } }
   // Fallback legacy
   const m = body.match(/<!-- lota:meta (\{.*?\}) -->/s);
   if (!m) return {};
-  try { return JSON.parse(m[1]); } catch { return {}; }
+  try { return JSON.parse(m[1]); } catch (e) { console.warn(`[non-critical] failed to parse legacy body metadata: ${(e as Error).message}`); return {}; }
 }
 
 // ── Label helpers ───────────────────────────────────────────
