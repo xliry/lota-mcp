@@ -280,6 +280,13 @@ async function updateStatus(id: number, body: Record<string, unknown>): Promise<
 }
 
 async function completeTask(id: number, body: Record<string, unknown>): Promise<unknown> {
+  // Idempotency guard — skip if already completed
+  const issue = await gh(`/repos/${repo()}/issues/${id}`) as GhIssue;
+  const currentLabels = issue.labels.map((l: { name: string }) => l.name);
+  if (currentLabels.includes(`${LABEL.STATUS}completed`)) {
+    return { ok: true, message: "Already completed (idempotent)" };
+  }
+
   const { summary, modified_files, new_files } = body as {
     summary: string; modified_files?: string[]; new_files?: string[];
   };
