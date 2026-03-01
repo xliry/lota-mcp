@@ -371,35 +371,33 @@ async function assignTask(id: number, body: Record<string, unknown>): Promise<un
 }
 
 async function sync(): Promise<unknown> {
-  // Fetch assigned tasks (need planning)
-  const assignedLabels = `${LABEL.TYPE},${LABEL.AGENT}${agent()},${LABEL.STATUS}assigned`;
-  const assignedIssues = await gh(`/repos/${repo()}/issues?labels=${encodeURIComponent(assignedLabels)}&state=open`) as GhIssue[];
-  const assigned = assignedIssues.map(extractFromIssue);
+  // 2 API calls total instead of 5 — filter by status label client-side
+  const agentLabels = `${LABEL.TYPE},${LABEL.AGENT}${agent()}`;
 
-  // Fetch approved tasks (ready to execute)
-  const approvedLabels = `${LABEL.TYPE},${LABEL.AGENT}${agent()},${LABEL.STATUS}approved`;
-  const approvedIssues = await gh(`/repos/${repo()}/issues?labels=${encodeURIComponent(approvedLabels)}&state=open`) as GhIssue[];
-  const approved = approvedIssues.map(extractFromIssue);
+  const [openIssues, completedIssues] = await Promise.all([
+    // Call 1: all open tasks for this agent
+    gh(`/repos/${repo()}/issues?labels=${encodeURIComponent(agentLabels)}&state=open&per_page=100`) as Promise<Array<GhIssue & { comments: number }>>,
+    // Call 2: recently completed (closed) tasks
+    gh(`/repos/${repo()}/issues?labels=${encodeURIComponent(`${agentLabels},${LABEL.STATUS}completed`)}&state=closed&per_page=10&sort=updated&direction=desc`) as Promise<Array<GhIssue & { comments: number }>>,
+  ]);
 
-  // Fetch in-progress tasks for comment detection
-  const inProgressLabels = `${LABEL.TYPE},${LABEL.AGENT}${agent()},${LABEL.STATUS}in-progress`;
-  const inProgressIssues = await gh(`/repos/${repo()}/issues?labels=${encodeURIComponent(inProgressLabels)}&state=open`) as Array<GhIssue & { comments: number }>;
-  const inProgress = inProgressIssues.map(issue => ({
-    ...extractFromIssue(issue),
-    comment_count: issue.comments ?? 0,
-  }));
+  // Filter open issues client-side by status label
+  const assigned = openIssues
+    .filter(i => i.labels.some(l => l.name === `${LABEL.STATUS}assigned`))
+    .map(extractFromIssue);
 
-  // Fetch failed tasks (terminal state, remain open for visibility)
-  const failedLabels = `${LABEL.TYPE},${LABEL.AGENT}${agent()},${LABEL.STATUS}failed`;
-  const failedIssues = await gh(`/repos/${repo()}/issues?labels=${encodeURIComponent(failedLabels)}&state=open`) as Array<GhIssue & { comments: number }>;
-  const failed = failedIssues.map(issue => ({
-    ...extractFromIssue(issue),
-    comment_count: issue.comments ?? 0,
-  }));
+  const approved = openIssues
+    .filter(i => i.labels.some(l => l.name === `${LABEL.STATUS}approved`))
+    .map(extractFromIssue);
 
-  // Fetch recently completed tasks (closed) so we can detect new comments on them
-  const completedLabels = `${LABEL.TYPE},${LABEL.AGENT}${agent()},${LABEL.STATUS}completed`;
-  const completedIssues = await gh(`/repos/${repo()}/issues?labels=${encodeURIComponent(completedLabels)}&state=closed&per_page=10&sort=updated&direction=desc`) as Array<GhIssue & { comments: number }>;
+  const inProgress = openIssues
+    .filter(i => i.labels.some(l => l.name === `${LABEL.STATUS}in-progress`))
+    .map(issue => ({ ...extractFromIssue(issue), comment_count: issue.comments ?? 0 }));
+
+  const failed = openIssues
+    .filter(i => i.labels.some(l => l.name === `${LABEL.STATUS}failed`))
+    .map(issue => ({ ...extractFromIssue(issue), comment_count: issue.comments ?? 0 }));
+
   const recentlyCompleted = completedIssues.map(issue => ({
     ...extractFromIssue(issue),
     comment_count: issue.comments ?? 0,
