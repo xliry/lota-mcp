@@ -42,6 +42,7 @@ interface AgentConfig {
   telegramChatId: string;
   timeout: number;
   maxRssMb: number;
+  useWorktree: boolean;
 }
 
 function parseArgs(): AgentConfig {
@@ -56,6 +57,7 @@ function parseArgs(): AgentConfig {
   let timeout = 900;
   let maxRssMb = 1024;
   let nameOverride = "";
+  let useWorktree = false;
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -70,6 +72,7 @@ function parseArgs(): AgentConfig {
       case "--timeout": timeout = parseInt(args[++i], 10); break;
       case "--max-rss": maxRssMb = parseInt(args[++i], 10); break;
       case "--name": case "-n": nameOverride = args[++i]; break;
+      case "--worktree": useWorktree = true; break;
       case "--help": case "-h":
         console.log(`Usage: lota-agent [options]
 
@@ -86,6 +89,7 @@ Options:
   --mode <auto|supervised>  auto = direct execution, supervised = Telegram approval (default: auto)
   --single-phase        Merge plan+execute into one Claude invocation (default: on in auto mode)
   --no-single-phase     Use separate plan→approve→execute phases even in auto mode
+  --worktree            Use git worktree isolation (default: simple branch strategy)
   -1, --once            Run once then exit
   -h, --help            Show this help`);
         process.exit(0);
@@ -164,7 +168,7 @@ Options:
     process.exit(1);
   }
 
-  return { configPath, model, interval, once, mode, singlePhase, agentName, maxTasksPerCycle, githubToken, githubRepo, telegramBotToken, telegramChatId, timeout, maxRssMb };
+  return { configPath, model, interval, once, mode, singlePhase, agentName, maxTasksPerCycle, githubToken, githubRepo, telegramBotToken, telegramChatId, timeout, maxRssMb, useWorktree };
 }
 
 // ── Logging (stdout + file) ──────────────────────────────────────
@@ -681,7 +685,7 @@ function resolveBuildCmd(workspace?: string): string {
   return "npx tsc";
 }
 
-function buildPrompt(agentName: string, work: WorkData, _config: AgentConfig): string {
+function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): string {
   // ── PHASE: COMMENTS ──
   if (work.phase === "comments") {
     const list = work.commentUpdates.map(cu =>
@@ -724,9 +728,13 @@ function buildPrompt(agentName: string, work: WorkData, _config: AgentConfig): s
   }
 
   // Shared RULES for execute/single phases
+  const branchName = `task-${t.id}-${agentName}`;
+  const branchRule = config.useWorktree
+    ? "  - You are already in the correct workspace directory (git worktree)."
+    : `  - You are in the workspace directory. First, run: git checkout -b ${branchName} (or git checkout ${branchName} if it exists). Push to this branch.`;
   const rules = [
     "RULES:",
-    "  - You are already in the correct workspace directory.",
+    branchRule,
     "  - Git identity is pre-configured. Do not run git config.",
     "  - Token file: ~/lota/.github-token (for git push auth).",
     `  - Run \`${buildCmd}\` before pushing. Fix errors before committing.`,
@@ -899,6 +907,60 @@ function resolveWorkspace(work: WorkData): string {
 }
 
 
+// ── Simple branch merge (default, no worktree) ──────────────────
+
+function mergeBranch(workspace: string, branch: string): { success: boolean; hasConflicts: boolean; output: string } {
+  const gitOpts = { cwd: workspace, encoding: "utf-8" as const };
+  try {
+    // Ensure we're on main
+    try {
+      execSync("git checkout main", gitOpts);
+    } catch (e) {
+      // Some repos use master
+      try { execSync("git checkout master", gitOpts); } catch { /* ignore */ }
+    }
+
+    // Pull latest main
+    try {
+      execSync("git pull --ff-only origin main", gitOpts);
+    } catch {
+      try { execSync("git pull origin main --no-edit", gitOpts); } catch { /* ignore */ }
+    }
+
+    // Merge the task branch
+    try {
+      execSync(`git merge "${branch}" --no-edit`, gitOpts);
+    } catch (e) {
+      const status = execSync("git status --short", gitOpts);
+      if (status.includes("UU") || status.includes("AA") || status.includes("DD")) {
+        try { execSync("git merge --abort", gitOpts); } catch { /* ignore */ }
+        return { success: false, hasConflicts: true, output: (e as Error).message };
+      }
+      return { success: false, hasConflicts: false, output: (e as Error).message };
+    }
+
+    // Push to origin with retry
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        execSync("git push origin main", gitOpts);
+        break;
+      } catch {
+        if (attempt < 2) {
+          try { execSync("git pull --ff-only origin main", gitOpts); } catch { /* ignore */ }
+        }
+      }
+    }
+
+    // Clean up task branch (local + remote)
+    try { execSync(`git branch -d "${branch}"`, gitOpts); } catch { /* ignore */ }
+    try { execSync(`git push origin --delete "${branch}"`, gitOpts); } catch { /* ignore */ }
+
+    return { success: true, hasConflicts: false, output: "" };
+  } catch (e) {
+    return { success: false, hasConflicts: false, output: (e as Error).message };
+  }
+}
+
 // ── Claude subprocess ───────────────────────────────────────────
 
 let currentProcess: ChildProcess | null = null;
@@ -1000,16 +1062,22 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
       }
     }
 
-    // Create git worktree for isolation (execute/single phases only)
+    // Create git worktree for isolation (only when --worktree flag is set)
     let claudeCwd = workingDir;
     let worktreeInfo: WorktreeInfo | null = null;
+    let defaultBranch: string | null = null;
     if ((work.phase === "execute" || work.phase === "single") && work.tasks[0]?.id) {
-      worktreeInfo = createWorktree(workingDir, config.agentName, work.tasks[0].id);
-      if (worktreeInfo) {
-        claudeCwd = worktreeInfo.worktreePath;
-        ok(`Worktree: ${claudeCwd} (branch: ${worktreeInfo.branch})`);
+      if (config.useWorktree) {
+        worktreeInfo = createWorktree(workingDir, config.agentName, work.tasks[0].id);
+        if (worktreeInfo) {
+          claudeCwd = worktreeInfo.worktreePath;
+          ok(`Worktree: ${claudeCwd} (branch: ${worktreeInfo.branch})`);
+        } else {
+          dim(`Worktree skipped (not a git repo or failed): ${workingDir}`);
+        }
       } else {
-        dim(`Worktree skipped (not a git repo or failed): ${workingDir}`);
+        defaultBranch = `task-${work.tasks[0].id}-${config.agentName}`;
+        ok(`Branch strategy: agent will work on branch ${defaultBranch}`);
       }
     }
 
@@ -1154,6 +1222,23 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
         } else {
           // Task failed — clean up worktree
           cleanupWorktree(worktreeInfo.originalWorkspace, config.agentName, worktreeInfo.branch);
+        }
+      } else if (defaultBranch && code === 0) {
+        // Default branch strategy: merge task branch → main
+        log(`Merging branch ${defaultBranch} back to main...`);
+        const mergeResult = mergeBranch(workingDir, defaultBranch);
+        if (mergeResult.success) {
+          ok(`Merged ${defaultBranch} → main`);
+        } else if (mergeResult.hasConflicts) {
+          err(`Merge conflict on ${defaultBranch} — manual review needed`);
+          err(mergeResult.output.slice(0, 200));
+          for (const t of work.tasks) {
+            lota("POST", `/tasks/${t.id}/comment`, {
+              content: `⚠️ **Merge conflict**: Agent completed work on branch \`${defaultBranch}\` but auto-merge to main failed due to conflicts. Branch preserved for manual review.`,
+            }).catch(() => { /* best-effort */ });
+          }
+        } else {
+          err(`Merge/push failed: ${mergeResult.output.slice(0, 200)}`);
         }
       }
 
