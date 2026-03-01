@@ -329,9 +329,9 @@ async function recoverStaleTasks(config: AgentConfig): Promise<void> {
 
   log("🔍 Checking for stale in-progress tasks from previous crash...");
 
-  let tasks: Array<{ id: number; title: string; assignee: string | null; updatedAt?: string }>;
+  let tasks: Array<{ id: number; title: string; assignee: string | null; retries?: number; updatedAt?: string }>;
   try {
-    tasks = await lota("GET", "/tasks?status=in-progress") as Array<{ id: number; title: string; assignee: string | null; updatedAt?: string }>;
+    tasks = await lota("GET", "/tasks?status=in-progress") as Array<{ id: number; title: string; assignee: string | null; retries?: number; updatedAt?: string }>;
   } catch (e) {
     err(`Startup recovery check failed: ${(e as Error).message}`);
     return;
@@ -354,28 +354,24 @@ async function recoverStaleTasks(config: AgentConfig): Promise<void> {
       }
     }
 
-    let details: { comments?: Array<{ body: string }>; workspace?: string };
+    let details: { workspace?: string };
     try {
-      details = await lota("GET", `/tasks/${task.id}`) as { comments?: Array<{ body: string }>; workspace?: string };
+      details = await lota("GET", `/tasks/${task.id}`) as { workspace?: string };
     } catch (e) {
       err(`Failed to fetch details for task #${task.id}: ${(e as Error).message}`);
       continue;
     }
 
-    const comments = details.comments || [];
-    let retryCount = 0;
-    for (const c of comments) {
-      const match = c.body.match(/⚠️ Retry (\d+)\/3/);
-      if (match) retryCount = Math.max(retryCount, parseInt(match[1], 10));
-    }
+    const retryCount = task.retries ?? 0;
 
     if (retryCount < 3) {
       const nextRetry = retryCount + 1;
       log(`🔄 Recovering task #${task.id} "${task.title}" (retry ${nextRetry}/3)`);
       try {
+        await lota("PATCH", `/tasks/${task.id}/meta`, { retries: nextRetry });
         await lota("POST", `/tasks/${task.id}/status`, { status: "assigned" });
         await lota("POST", `/tasks/${task.id}/comment`, {
-          content: `🔄 Auto-recovery: task was in-progress when agent crashed. ⚠️ Retry ${nextRetry}/3`,
+          content: `🔄 Auto-recovery: task was in-progress when agent crashed (retry ${nextRetry}/3).`,
         });
       } catch (e) {
         err(`Failed to recover task #${task.id}: ${(e as Error).message}`);

@@ -29,6 +29,7 @@ interface Task {
   labels: string[];
   body: string;
   workspace: string | null;
+  retries: number;
   updatedAt?: string;
 }
 
@@ -168,6 +169,28 @@ function parseBodyMeta(body: string): Record<string, unknown> {
   try { return JSON.parse(m[1]); } catch { return {}; }
 }
 
+function replaceBodyMeta(body: string, newMeta: Record<string, unknown>): string {
+  const tag = `<!-- lota:${META_VERSION}:meta ${JSON.stringify(newMeta)} -->`;
+  const vRe = new RegExp(`<!-- lota:${META_VERSION}:meta \\{.*?\\} -->`, "s");
+  if (vRe.test(body)) return body.replace(vRe, tag);
+  const legacyRe = /<!-- lota:meta \{.*?\} -->/s;
+  if (legacyRe.test(body)) return body.replace(legacyRe, tag);
+  return `${body}\n\n${tag}`;
+}
+
+async function patchTaskMeta(id: number, updates: Record<string, unknown>): Promise<unknown> {
+  const issue = await gh(`/repos/${repo()}/issues/${id}`) as GhIssue;
+  const currentBody = issue.body || "";
+  const existingMeta = parseBodyMeta(currentBody);
+  const newMeta = { ...existingMeta, ...updates };
+  const updatedBody = replaceBodyMeta(currentBody, newMeta);
+  await gh(`/repos/${repo()}/issues/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ body: updatedBody }),
+  });
+  return { ok: true, meta: newMeta };
+}
+
 // ── Label helpers ───────────────────────────────────────────
 
 async function swapLabels(issueNumber: number, prefix: string, newLabel: string): Promise<void> {
@@ -190,7 +213,8 @@ function extractFromIssue(issue: GhIssue): Task {
   const priority = labels.find(l => l.startsWith(LABEL.PRIORITY))?.slice(LABEL.PRIORITY.length) || null;
   const meta = parseBodyMeta(issue.body || "");
   const workspace = (meta.workspace as string) || null;
-  return { id: issue.number, number: issue.number, title: issue.title, status, assignee, priority, labels, body: issue.body || "", workspace, updatedAt: issue.updated_at };
+  const retries = typeof meta.retries === "number" ? meta.retries : 0;
+  return { id: issue.number, number: issue.number, title: issue.title, status, assignee, priority, labels, body: issue.body || "", workspace, retries, updatedAt: issue.updated_at };
 }
 
 // ── Handlers ────────────────────────────────────────────────
@@ -403,6 +427,7 @@ export async function lota(method: string, path: string, body?: Record<string, u
     case "POST /tasks/:id/complete": return completeTask(id!, body!);
     case "POST /tasks/:id/comment": return addComment(id!, body!);
     case "POST /tasks/:id/assign": return assignTask(id!, body!);
+    case "PATCH /tasks/:id/meta":  return patchTaskMeta(id!, body!);
     default: throw Object.assign(
       new Error(`Unknown route: ${method} ${path}`),
       { code: "LOTA_UNKNOWN_ROUTE" }
