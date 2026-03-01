@@ -639,171 +639,115 @@ function sanitizeTaskBody(body: string): string {
   return cleaned.slice(0, HEAD) + "\n\n... [truncated] ...\n\n" + cleaned.slice(-TAIL);
 }
 
-function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): string {
-  const repoOwner = config.githubRepo.split("/")[0] || agentName;
-  const lines = [
-    `You are autonomous LOTA agent "${agentName}". Use the lota() MCP tool for all API calls.`,
-    "",
-    "── RULES ──",
-    "  GITHUB TOKEN ACCESS:",
-    "    - Token file: ~/lota/.github-token (read it with: cat ~/lota/.github-token)",
-    "    - For curl API calls: TOKEN=$(cat ~/lota/.github-token) && curl -H \"Authorization: token $TOKEN\" ...",
-    "    - Do NOT waste time looking for env vars, gh auth, or debugging auth. Just read the token file.",
-    "",
-    "  GIT RULES (MUST follow):",
-    "    - Git identity is pre-configured. Do not run git config.",
-    "    - For git operations, use: git clone https://x-access-token:$(cat ~/lota/.github-token)@github.com/OWNER/REPO.git",
-    "",
-    "  GIT PUSH RULES:",
-    "    - If push fails with 403/permission denied:",
-    "      1. Fork the repo: gh repo fork <owner>/<repo> --clone=false",
-    "      2. Get your GitHub username: YOUR_USER=$(gh api user --jq .login)",
-    "      3. Add fork as remote: git remote add fork https://github.com/$YOUR_USER/<repo>.git",
-    "      4. Push to fork: git push fork <branch>",
-    "      5. Create cross-repo PR: gh pr create --repo <owner>/<repo> --head $YOUR_USER:<branch>",
-    "    - Do NOT waste time debugging auth. Fork immediately on 403.",
-    "",
-    "  WORKSPACE & REPO RULES (priority order):",
-    "    1. If a task has a workspace path AND it exists locally → cd into it. Then run `git pull` to make sure it's up to date.",
-    "    2. If no workspace but a repo link exists (e.g. 'Repo: https://github.com/user/project') → clone it to /root/<repo-name>, work there.",
-    "    - ALWAYS git pull before starting work to ensure you have the latest code.",
-    "    - NEVER git clone a repo that already exists locally — use the existing directory.",
-    "    - Use Write/Edit tools for file operations, NOT cat/heredoc via Bash.",
-    "",
-    "  PERFORMANCE RULES:",
-    "    - Do NOT call TodoWrite between every edit. Plan your work upfront, then execute edits in batch.",
-    "    - Only use TodoWrite at most twice: once at the start to plan, once at the end to verify.",
-    "    - Minimize redundant file reads — if you already read a file, don't read it again unless it was modified by someone else.",
-    "    - ALWAYS commit and push your changes to the remote repository before completing a task.",
-    "    - BEFORE pushing: run the FULL build command `npm run build` (NOT just `npx tsc --noEmit` or `tsc` alone).",
-    "    - `npm run build` catches bundler errors, missing assets, and more than just types.",
-    "    - If no `build` script in package.json, fallback to `npx tsc`. Never skip build.",
-    "    - If build fails, fix ALL errors before committing. Do NOT push broken code.",
-    "    - Do NOT use the Agent tool or Task tool. Use Grep and Read directly.",
-  ];
+function resolveBuildCmd(workspace?: string): string {
+  if (!workspace) return "npm run build";
+  const home = resolve(process.env.HOME || "/root");
+  const dir = workspace.startsWith("~/") ? join(home, workspace.slice(2)) : workspace;
+  try {
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8"));
+    if (pkg.scripts?.build) return "npm run build";
+  } catch {}
+  return "npx tsc";
+}
 
+function buildPrompt(agentName: string, work: WorkData, _config: AgentConfig): string {
   // ── PHASE: COMMENTS ──
   if (work.phase === "comments") {
-    lines.push("", "── NEW COMMENTS DETECTED ──");
-    lines.push("  PRIORITY: Read these and respond appropriately.");
-    for (const cu of work.commentUpdates) {
-      lines.push(`  Task #${cu.id}: "${cu.title}" has ${cu.new_comment_count} new comment(s)`);
-      if (cu.workspace) {
-        lines.push(`    → Workspace: ${cu.workspace}`);
-      }
-    }
-    lines.push(
+    const list = work.commentUpdates.map(cu =>
+      `  #${cu.id} "${cu.title}": ${cu.new_comment_count} new comment(s)${cu.workspace ? ` — ${cu.workspace}` : ""}`
+    ).join("\n");
+    return [
+      `You are agent "${agentName}". Your MCP tool is lota().`,
       "",
-      "  After reading new comments:",
-      "  - If the user is giving feedback → adjust your work accordingly",
-      "  - If the user is asking a question → reply with a comment",
-      "  - If the user is changing requirements → update your approach",
-    );
+      "NEW COMMENTS on tasks. Read via lota API and respond appropriately.",
+      "  - User feedback → adjust your work",
+      "  - Question → reply with a comment",
+      "  - Changed requirements → update your approach",
+      "",
+      list,
+    ].join("\n");
   }
 
-  // ── PHASE: SINGLE (auto mode — explore, plan, execute in one shot) ──
-  if (work.phase === "single" && work.tasks.length) {
-    lines.push("", "── SINGLE PHASE — Explore, plan, then execute immediately ──");
-    lines.push("  You are in auto mode. Explore the codebase, then execute immediately without waiting for approval.");
-    lines.push("");
-    for (const t of work.tasks) {
-      lines.push(`  Task #${t.id}: ${t.title || "(untitled)"}`);
-      if (t.workspace) {
-        lines.push(`  Workspace: ${t.workspace} (project is here — DO NOT clone)`);
-      }
-      if (t.body) {
-        lines.push("", "  ── TASK BODY ──", sanitizeTaskBody(t.body), "  ── END BODY ──");
-      }
-    }
-    lines.push(
+  const t = work.tasks[0];
+  if (!t) return `You are agent "${agentName}". No tasks assigned.`;
+
+  const buildCmd = resolveBuildCmd(t.workspace);
+  const taskHeader = `TASK #${t.id}: ${t.title}\nWorkspace: ${t.workspace ?? "(none)"}\nBuild: ${buildCmd}`;
+  const body = t.body ? "\n" + sanitizeTaskBody(t.body) : "";
+
+  // ── PHASE: PLAN ──
+  if (work.phase === "plan") {
+    return [
+      `You are agent "${agentName}". Your MCP tool is lota().`,
       "",
-      "  IMPORTANT: You are working on exactly ONE task this cycle. Make exactly ONE focused commit.",
-      "  Commit message MUST reference the task: e.g., \"feat: add X (#42)\"",
-      "  Do NOT batch changes from other tasks.",
+      "PLAN PHASE — Explore, then plan. Do NOT execute code.",
       "",
-      "  WORKFLOW for each task:",
-      `    1. Set status to in-progress: lota("POST", "/tasks/<id>/status", {"status": "in-progress"})`,
-      "    2. Explore the codebase to understand what's needed (use Explore subagents)",
-      "    3. Execute the work immediately — do NOT stop and wait for approval",
-      "    4. BEFORE pushing: run `npm run build` (NOT `npx tsc --noEmit` alone). If build fails, fix ALL errors before committing. Never push broken code.",
-      `    5. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
-    );
+      "WORKFLOW:",
+      `  1. lota("POST", "/tasks/${t.id}/plan", {goals: [...], affected_files: [...], effort: "..."})`,
+      `  2. lota("POST", "/tasks/${t.id}/status", {status: "planned"})`,
+      "  3. STOP. User will approve via Hub before you execute.",
+      "",
+      taskHeader,
+      body,
+    ].join("\n");
   }
 
-  // ── PHASE: PLAN (assigned tasks — create plan, wait for approval) ──
-  if (work.phase === "plan" && work.tasks.length) {
-    lines.push("", "── PLAN PHASE — Create plans for approval ──");
-    lines.push("  These tasks are NEW and need a plan. The user will review before you execute.");
-    lines.push("");
-    for (const t of work.tasks) {
-      lines.push(`  Task #${t.id}: ${t.title || "(untitled)"}`);
-      if (t.workspace) {
-        lines.push(`  Workspace: ${t.workspace} (project is here — DO NOT clone)`);
-      }
-      if (t.body) {
-        lines.push("", "  ── TASK BODY ──", sanitizeTaskBody(t.body), "  ── END BODY ──");
-      }
-    }
-    lines.push(
+  // Shared RULES for execute/single phases
+  const rules = [
+    "RULES:",
+    "  - You are already in the correct workspace directory.",
+    "  - Git identity is pre-configured. Do not run git config.",
+    "  - Token file: ~/lota/.github-token (for git push auth).",
+    `  - Run \`${buildCmd}\` before pushing. Fix errors before committing.`,
+    `  - Make ONE focused commit: "feat: description (#${t.id})"`,
+    "  - Do NOT use TodoWrite, Agent tool, or Task tool.",
+    "  - Do NOT re-read the task via lota API. The task body is below.",
+    "  - Do NOT post plan comments. Your commit is the audit trail.",
+    "  - If push gets 403, report as comment and stop.",
+    "  - Use `gh` CLI for GitHub operations, NOT curl.",
+    "  - NEVER force push.",
+  ].join("\n");
+
+  const workflow = [
+    "WORKFLOW:",
+    `  1. lota("POST", "/tasks/${t.id}/status", {status: "in-progress"})`,
+    "  2. Do the work. Build. Test. Commit. Push.",
+    `  3. lota("POST", "/tasks/${t.id}/complete", {summary: "..."})`,
+  ].join("\n");
+
+  // ── PHASE: EXECUTE ──
+  if (work.phase === "execute") {
+    const goals = t.plan?.goals?.length
+      ? "\nGOALS:\n" + t.plan.goals.map(g => `  - ${g}`).join("\n")
+      : "";
+    const files = t.plan?.affected_files?.length
+      ? "\nFILES:\n" + t.plan.affected_files.map(f => `  - ${f}`).join("\n")
+      : "";
+    return [
+      `You are agent "${agentName}". Your MCP tool is lota().`,
       "",
-      "  WORKFLOW for each task:",
-      "    1. Explore the codebase to understand what's needed (use Explore subagents)",
-      `    2. Create a detailed plan: lota("POST", "/tasks/<id>/plan", {"goals": [...], "affected_files": [...], "effort": "..."})`,
-      `    3. Set status to planned: lota("POST", "/tasks/<id>/status", {"status": "planned"})`,
+      workflow,
       "",
-      "  IMPORTANT:",
-      "  - Do NOT execute any code changes. Only explore and plan.",
-      "  - The plan should be clear enough for the user to approve or give feedback.",
-      "  - After setting status to 'planned', STOP. The user will approve via Hub.",
-    );
+      rules,
+      "",
+      taskHeader,
+      body,
+      goals,
+      files,
+    ].join("\n");
   }
 
-  // ── PHASE: EXECUTE (approved tasks — do the work) ──
-  if (work.phase === "execute" && work.tasks.length) {
-    lines.push("", "── EXECUTE PHASE — Approved tasks, ready to work ──");
-    lines.push("  These tasks have been reviewed and approved. Execute them now.");
-    lines.push("");
-    for (const t of work.tasks) {
-      lines.push(`  Task #${t.id}: ${t.title || "(untitled)"}`);
-      if (t.workspace) {
-        lines.push(`  Workspace: ${t.workspace} (project is here — DO NOT clone)`);
-      }
-      if (t.body) {
-        lines.push("", "  ── TASK BODY ──", sanitizeTaskBody(t.body), "  ── END BODY ──");
-      }
-      if (t.plan?.goals?.length) {
-        lines.push("", "  ── GOALS FROM PLAN ──");
-        for (const g of t.plan.goals) {
-          lines.push(`    - ${g}`);
-        }
-        lines.push("  ── END GOALS ──");
-      }
-      if (t.plan?.affected_files?.length) {
-        lines.push("", "  ── FILES FROM PLAN ──");
-        lines.push("  You already explored these files during planning. Start implementing directly.");
-        lines.push("  Only re-read a file if it may have changed since planning (e.g. a git pull happened).");
-        lines.push("  Do NOT spawn Explore subagents to re-discover what is already listed here.");
-        for (const f of t.plan.affected_files) {
-          lines.push(`    - ${f}`);
-        }
-        lines.push("  ── END FILES FROM PLAN ──");
-      }
-    }
-    lines.push(
-      "",
-      "  IMPORTANT: You are working on exactly ONE task this cycle. Make exactly ONE focused commit.",
-      "  Commit message MUST reference the task: e.g., \"feat: add X (#42)\"",
-      "  Do NOT batch changes from other tasks.",
-      "",
-      "  WORKFLOW:",
-      `    1. Set status: lota("POST", "/tasks/<id>/status", {"status": "in-progress"})`,
-      "    2. Execute the plan. Use subagents for parallel work if needed.",
-      "    3. BEFORE pushing: run `npm run build` (NOT `npx tsc --noEmit` alone). If build fails, fix ALL errors before committing. Never push broken code.",
-      `    4. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
-    );
-  }
-
-  return lines.join("\n");
+  // ── PHASE: SINGLE (auto mode) ──
+  return [
+    `You are agent "${agentName}". Your MCP tool is lota().`,
+    "",
+    workflow,
+    "",
+    rules,
+    "",
+    taskHeader,
+    body,
+  ].join("\n");
 }
 
 // ── Event formatter (stream-json → readable log) ────────────────
