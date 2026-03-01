@@ -1,7 +1,8 @@
-import { spawn, execSync, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { lota } from "./github.js";
+import * as git from "./git.js";
 import { createWorktree, mergeWorktree, cleanupWorktree, type WorktreeInfo } from "./worktree.js";
 import { log, ok, dim, err, formatEvent, writeToLog } from "./logging.js";
 import { buildPrompt, resolveWorkspace } from "./prompt.js";
@@ -15,36 +16,34 @@ export function resetBusy(): void { busy = false; }
 
 // ── Git branch merge (simple branch strategy) ───────────────────
 export function mergeBranch(workspace: string, branch: string): { success: boolean; hasConflicts: boolean; output: string } {
-  const gitOpts = { cwd: workspace, encoding: "utf-8" as const };
-  try {
-    try { execSync("git checkout main", gitOpts); }
-    catch { try { execSync("git checkout master", gitOpts); } catch { /* ignore */ } }
-
-    try { execSync("git pull --ff-only origin main", gitOpts); }
-    catch { try { execSync("git pull origin main --no-edit", gitOpts); } catch { /* ignore */ } }
-
-    try {
-      execSync(`git merge "${branch}" --no-edit`, gitOpts);
-    } catch (e) {
-      const status = execSync("git status --short", gitOpts);
-      if (status.includes("UU") || status.includes("AA") || status.includes("DD")) {
-        try { execSync("git merge --abort", gitOpts); } catch { /* ignore */ }
-        return { success: false, hasConflicts: true, output: (e as Error).message };
-      }
-      return { success: false, hasConflicts: false, output: (e as Error).message };
-    }
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try { execSync("git push origin main", gitOpts); break; }
-      catch { if (attempt < 2) try { execSync("git pull --ff-only origin main", gitOpts); } catch { /* ignore */ } }
-    }
-
-    try { execSync(`git branch -d "${branch}"`, gitOpts); } catch { /* ignore */ }
-    try { execSync(`git push origin --delete "${branch}"`, gitOpts); } catch { /* ignore */ }
-    return { success: true, hasConflicts: false, output: "" };
-  } catch (e) {
-    return { success: false, hasConflicts: false, output: (e as Error).message };
+  // Step 1: Checkout main/master
+  if (!git.checkout(workspace, "main")) {
+    git.checkout(workspace, "master");
   }
+
+  // Step 2: Pull latest
+  git.pull(workspace, "origin", "main");
+
+  // Step 3: Merge the branch
+  if (!git.merge(workspace, branch)) {
+    if (git.hasConflicts(workspace)) {
+      git.mergeAbort(workspace);
+      return { success: false, hasConflicts: true, output: "" };
+    }
+    return { success: false, hasConflicts: false, output: "" };
+  }
+
+  // Step 4: Push with retry (pull to rebase on conflict, then retry)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (git.push(workspace, "origin main")) break;
+    if (attempt < 2) git.pull(workspace, "origin", "main");
+  }
+
+  // Step 5: Cleanup branch
+  git.deleteBranch(workspace, branch);
+  git.deleteRemoteBranch(workspace, branch);
+
+  return { success: true, hasConflicts: false, output: "" };
 }
 
 // ── Environment setup ────────────────────────────────────────────
