@@ -66,7 +66,7 @@ It walks you through setup (GitHub token, repo config) and starts the daemon. If
 
 ```bash
 # Install
-git clone https://github.com/xliry/lota-agents.git ~/.lota/lota
+git clone https://github.com/xliry/lota.git ~/.lota/lota
 cd ~/.lota/lota
 npm install && npm run build
 

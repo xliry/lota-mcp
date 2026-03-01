@@ -15,7 +15,7 @@ Look for an existing GitHub token in this order:
 3. Run `gh auth token 2>/dev/null` to check GitHub CLI
 
 If found, tell the user:
-"Found your GitHub token. I'll use it for Lota — it only needs Issues read/write permission on xliry/lota-agents."
+"Found your GitHub token. I'll use it for Lota — it only needs Issues read/write permission on xliry/lota."
 
 If NOT found, guide them:
 "I need a GitHub token to connect. Here's how to create one (takes 30 seconds):
@@ -45,7 +45,7 @@ Read the current project's `.mcp.json` (if it exists). Merge the lota config int
       "command": "node",
       "args": ["~/lota/dist/index.js"],
       "env": {
-        "GITHUB_REPO": "xliry/lota-agents",
+        "GITHUB_REPO": "xliry/lota",
         "AGENT_NAME": "lota"
       }
     }
@@ -57,7 +57,7 @@ Read the current project's `.mcp.json` (if it exists). Merge the lota config int
 
 If `.mcp.json` already has other servers, preserve them — only add/update the "lota" key.
 
-Tell the user: "Configured Lota to connect to xliry/lota-agents."
+Tell the user: "Configured Lota to connect to xliry/lota."
 
 ## Step 3: Install Skills
 
