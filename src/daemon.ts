@@ -1057,11 +1057,15 @@ function runClaude(config: AgentConfig, work: WorkData): Promise<number> {
       ];
       const currentAllow: string[] = (existingSettings.permissions as { allow?: string[] })?.allow || [];
       const mergedAllow = [...new Set([...currentAllow, ...requiredPermissions])];
+      const deniedTools = ["TodoWrite"];
+      const currentDeny: string[] = (existingSettings.permissions as { deny?: string[] })?.deny || [];
+      const mergedDeny = [...new Set([...currentDeny, ...deniedTools])];
       const mergedSettings = {
         ...existingSettings,
         permissions: {
           ...(existingSettings.permissions as object || {}),
           allow: mergedAllow,
+          deny: mergedDeny,
         },
       };
       writeFileSync(claudeSettingsFile, JSON.stringify(mergedSettings, null, 2) + "\n");
