@@ -91,7 +91,7 @@ function loadCredentials(configPath: string, nameOverride: string): Pick<AgentCo
     process.exit(1);
   }
 
-  if (!githubRepo) githubRepo = process.env.GITHUB_REPO || "xliry/lota";
+  if (!githubRepo) githubRepo = process.env.GITHUB_REPO || "xliry/lota-agents";
   if (!agentName) agentName = process.env.AGENT_NAME || "lota";
   if (nameOverride) agentName = nameOverride;
 

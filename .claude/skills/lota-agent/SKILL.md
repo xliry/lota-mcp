@@ -95,7 +95,7 @@ If it fails or returns empty (sandbox/container), the token will go in `.mcp.jso
 
 > "Which repo should I watch for tasks? (e.g., yourname/my-project)"
 
-Wait for user response. Default: `xliry/lota`
+Wait for user response. Default: `xliry/lota-agents`
 
 #### Setup Step 4: Write configuration
 
