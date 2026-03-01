@@ -715,7 +715,7 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
   // ── PHASE: SINGLE (auto mode — explore, plan, execute in one shot) ──
   if (work.phase === "single" && work.tasks.length) {
     lines.push("", "── SINGLE PHASE — Explore, plan, then execute immediately ──");
-    lines.push("  You are in auto mode. Explore the codebase, post a plan comment, then immediately execute without waiting for approval.");
+    lines.push("  You are in auto mode. Explore the codebase, then execute immediately without waiting for approval.");
     lines.push("");
     for (const t of work.tasks) {
       lines.push(`  Task #${t.id}: ${t.title || "(untitled)"}`);
@@ -735,10 +735,9 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
       "  WORKFLOW for each task:",
       `    1. Set status to in-progress: lota("POST", "/tasks/<id>/status", {"status": "in-progress"})`,
       "    2. Explore the codebase to understand what's needed (use Explore subagents)",
-      `    3. Post plan as comment (for audit trail): lota("POST", "/tasks/<id>/comment", {"content": "## Plan\\n- Goal 1\\n- Goal 2\\n..."})`,
-      "    4. Execute the work immediately — do NOT stop and wait for approval",
-      "    5. BEFORE pushing: run `npm run build` (NOT `npx tsc --noEmit` alone). If build fails, fix ALL errors before committing. Never push broken code.",
-      `    6. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
+      "    3. Execute the work immediately — do NOT stop and wait for approval",
+      "    4. BEFORE pushing: run `npm run build` (NOT `npx tsc --noEmit` alone). If build fails, fix ALL errors before committing. Never push broken code.",
+      `    5. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
     );
   }
 
