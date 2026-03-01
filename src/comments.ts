@@ -11,7 +11,8 @@ async function checkDependenciesMet(deps: number[], knownCompleted: Set<number>)
     try {
       const issue = await lota("GET", `/tasks/${depId}`) as { status: string };
       if (issue.status !== "completed") return false;
-    } catch {
+    } catch (e) {
+      dim(`[non-critical] checkDependenciesMet: failed to check dep #${depId}: ${(e as Error).message}`);
       return false; // can't verify → assume not met
     }
   }
