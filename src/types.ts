@@ -24,6 +24,7 @@ export interface TaskInfo {
   status: string;
   body?: string;
   workspace?: string;
+  depends_on?: number[];
   comment_count?: number;
   plan?: {
     affected_files?: string[];

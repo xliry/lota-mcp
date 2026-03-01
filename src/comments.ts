@@ -4,6 +4,20 @@ import { lota } from "./github.js";
 import { dim } from "./logging.js";
 import type { AgentConfig, TaskInfo, CommentUpdate, WorkData } from "./types.js";
 
+// ── Dependency checking ───────────────────────────────────────────
+async function checkDependenciesMet(deps: number[], knownCompleted: Set<number>): Promise<boolean> {
+  for (const depId of deps) {
+    if (knownCompleted.has(depId)) continue;
+    try {
+      const issue = await lota("GET", `/tasks/${depId}`) as { status: string };
+      if (issue.status !== "completed") return false;
+    } catch {
+      return false; // can't verify → assume not met
+    }
+  }
+  return true;
+}
+
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const BASELINES_FILE = join(process.env.HOME || "/root", "lota", ".comment-baselines.json");
 
@@ -107,8 +121,24 @@ export async function checkForWork(config: AgentConfig): Promise<WorkData | null
     assigned: TaskInfo[];
     approved: TaskInfo[];
     in_progress: (TaskInfo & { comment_count: number })[];
+    blocked?: TaskInfo[];
     recently_completed: (TaskInfo & { comment_count: number })[];
   };
+
+  // Auto-unblock: check blocked tasks whose dependencies are all completed
+  const blocked = data.blocked || [];
+  if (blocked.length) {
+    const completedIds = new Set((data.recently_completed || []).map(t => t.id));
+    for (const task of blocked) {
+      const deps = task.depends_on || [];
+      if (!deps.length) continue;
+      const allMet = await checkDependenciesMet(deps, completedIds);
+      if (allMet) {
+        await lota("POST", `/tasks/${task.id}/status`, { status: "assigned" });
+        dim(`Unblocked task #${task.id} "${task.title}" — all dependencies met`);
+      }
+    }
+  }
 
   const assigned = data.assigned || [];
   const approved = data.approved || [];

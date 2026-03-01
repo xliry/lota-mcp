@@ -29,6 +29,7 @@ interface Task {
   labels: string[];
   body: string;
   workspace: string | null;
+  depends_on: number[];
   retries: number;
   updatedAt?: string;
 }
@@ -213,8 +214,9 @@ function extractFromIssue(issue: GhIssue): Task {
   const priority = labels.find(l => l.startsWith(LABEL.PRIORITY))?.slice(LABEL.PRIORITY.length) || null;
   const meta = parseBodyMeta(issue.body || "");
   const workspace = (meta.workspace as string) || null;
+  const depends_on = Array.isArray(meta.depends_on) ? meta.depends_on as number[] : [];
   const retries = typeof meta.retries === "number" ? meta.retries : 0;
-  return { id: issue.number, number: issue.number, title: issue.title, status, assignee, priority, labels, body: issue.body || "", workspace, retries, updatedAt: issue.updated_at };
+  return { id: issue.number, number: issue.number, title: issue.title, status, assignee, priority, labels, body: issue.body || "", workspace, depends_on, retries, updatedAt: issue.updated_at };
 }
 
 // ── Handlers ────────────────────────────────────────────────
@@ -240,14 +242,18 @@ async function getTask(id: number): Promise<unknown> {
 }
 
 async function createTask(body: Record<string, unknown>): Promise<unknown> {
-  const { title, assign, priority, body: taskBody, workspace } = body as {
-    title: string; assign?: string; priority?: string; body?: string; workspace?: string;
+  const { title, assign, priority, body: taskBody, workspace, depends_on } = body as {
+    title: string; assign?: string; priority?: string; body?: string; workspace?: string; depends_on?: number[];
   };
-  const labels = [LABEL.TYPE, `${LABEL.AGENT}${assign || agent()}`, `${LABEL.STATUS}assigned`];
+  const status = depends_on?.length ? "blocked" : "assigned";
+  const labels = [LABEL.TYPE, `${LABEL.AGENT}${assign || agent()}`, `${LABEL.STATUS}${status}`];
   if (priority) labels.push(`${LABEL.PRIORITY}${priority}`);
   let finalBody = taskBody || "";
-  if (workspace) {
-    finalBody += `\n\n<!-- lota:${META_VERSION}:meta ${JSON.stringify({ workspace })} -->`;
+  const meta: Record<string, unknown> = {};
+  if (workspace) meta.workspace = workspace;
+  if (depends_on?.length) meta.depends_on = depends_on;
+  if (Object.keys(meta).length) {
+    finalBody += `\n\n<!-- lota:${META_VERSION}:meta ${JSON.stringify(meta)} -->`;
   }
   return await gh(`/repos/${repo()}/issues`, {
     method: "POST",
@@ -405,12 +411,16 @@ async function sync(): Promise<unknown> {
     .filter(i => i.labels.some(l => l.name === `${LABEL.STATUS}failed`))
     .map(issue => ({ ...extractFromIssue(issue), comment_count: issue.comments ?? 0 }));
 
+  const blocked = openIssues
+    .filter(i => i.labels.some(l => l.name === `${LABEL.STATUS}blocked`))
+    .map(extractFromIssue);
+
   const recentlyCompleted = completedIssues.map(issue => ({
     ...extractFromIssue(issue),
     comment_count: issue.comments ?? 0,
   }));
 
-  return { assigned, approved, in_progress: inProgress, failed, recently_completed: recentlyCompleted };
+  return { assigned, approved, in_progress: inProgress, failed, blocked, recently_completed: recentlyCompleted };
 }
 
 // ── Main dispatcher ─────────────────────────────────────────

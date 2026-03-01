@@ -141,32 +141,51 @@ Then:
 - Only ask for clarification if genuinely ambiguous
 - Keep the body detailed but the title short
 
-## Creating Multiple Tasks (Round-Robin Distribution)
+## Creating Multiple Tasks (Dependency-Aware Distribution)
 
 When the user asks to create **multiple tasks at once** (e.g., "13 task oluştur", "create 5 tasks"):
 
 1. **Discover alive agents** (see Agent Discovery section above)
-2. **Distribute round-robin**: assign task `i` to `agents[i % agents.length]`
-3. **Show distribution before creating** (confirm once if count > 5):
+2. **Parse dependencies**: If a task depends on another, note it
+3. **Wave analysis**:
+   - **Wave 0**: tasks with no dependencies → assign immediately
+   - **Wave 1+**: tasks that depend on Wave 0 tasks → create as `status:blocked`
+4. **Round-robin only Wave 0** across agents
+5. **Show distribution before creating** (confirm once if count > 5):
    ```
    Creating 9 tasks across 3 agents:
-     lota-1 → 3 tasks
-     lota-2 → 3 tasks
-     lota-3 → 3 tasks
+     Wave 0 (immediate): 6 tasks
+       lota-1 → 2 tasks
+       lota-2 → 2 tasks
+       lota-3 → 2 tasks
+     Wave 1 (blocked, auto-unblocks): 3 tasks
+       lota-1 → 1 task (depends on #180)
+       lota-2 → 1 task (depends on #181, #182)
+       lota-3 → 1 task (depends on #183)
    ```
-4. **Create each task** with `assign` set to the appropriate agent:
+6. **Create Wave 0 tasks** normally (they get `status:assigned`):
    ```
    lota("POST", "/tasks", {"title": "...", "assign": "lota-1", "priority": "medium", "body": "..."})
-   lota("POST", "/tasks", {"title": "...", "assign": "lota-2", "priority": "medium", "body": "..."})
-   ...
    ```
-5. **After all created**, show the summary:
+7. **Create Wave 1+ tasks** with `depends_on` (they get `status:blocked` automatically):
    ```
-   ✅ Created 9 tasks:
-     4 tasks → lota-1 (#28, #29, #32, #35)
-     3 tasks → lota-2 (#30, #33, #36)
-     2 tasks → lota-3 (#31, #34)
+   lota("POST", "/tasks", {"title": "...", "assign": "lota-1", "body": "...\n\n## Depends on\n- #180", "depends_on": [180]})
    ```
+   Note: `depends_on` is stored in metadata. The human-readable "## Depends on" section in body is for visibility.
+8. **After all created**, show the summary:
+   ```
+   Created 9 tasks:
+     Wave 0 (assigned):
+       lota-1 → #28, #29
+       lota-2 → #30, #31
+       lota-3 → #32, #33
+     Wave 1 (blocked — auto-unblocks when deps complete):
+       lota-1 → #34 (depends on #28, #30, #32)
+       lota-2 → #35 (depends on #29)
+       lota-3 → #36 (depends on #31)
+   ```
+
+**Blocked tasks auto-unblock**: The daemon checks blocked tasks every poll cycle. When all `depends_on` tasks are completed, it automatically moves the blocked task to `assigned`.
 
 If only 1 agent alive, all tasks go to that agent (no distribution needed).
 
