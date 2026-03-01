@@ -281,6 +281,11 @@ async function updateStatus(id: number, body: Record<string, unknown>): Promise<
       method: "PATCH",
       body: JSON.stringify({ state: "closed" }),
     });
+    try {
+      await unblockDependents(id);
+    } catch (err) {
+      console.error(`[task #${id}] Unblock dependents failed (non-fatal): ${(err as Error).message}`);
+    }
   }
   return { ok: true, status };
 }
@@ -366,7 +371,47 @@ async function completeTask(id: number, body: Record<string, unknown>): Promise<
     }
   }
 
+  // Step 4: Unblock dependent tasks whose dependencies are now all completed
+  try {
+    await unblockDependents(id);
+  } catch (err) {
+    console.error(`[task #${id}] Unblock dependents failed (non-fatal): ${(err as Error).message}`);
+  }
+
   return { ...result, ok: true };
+}
+
+async function unblockDependents(completedTaskId: number): Promise<void> {
+  // Fetch all open issues with status:blocked label (across all agents)
+  const blockedIssues = await gh(
+    `/repos/${repo()}/issues?labels=${encodeURIComponent(`${LABEL.TYPE},${LABEL.STATUS}blocked`)}&state=open&per_page=100`
+  ) as GhIssue[];
+
+  for (const issue of blockedIssues) {
+    const task = extractFromIssue(issue);
+    if (!task.depends_on.includes(completedTaskId)) continue;
+
+    // Check if ALL dependencies are completed (closed)
+    let allDepsCompleted = true;
+    for (const depId of task.depends_on) {
+      if (depId === completedTaskId) continue; // already completed
+      try {
+        const depIssue = await gh(`/repos/${repo()}/issues/${depId}`) as { state: string };
+        if (depIssue.state !== "closed") {
+          allDepsCompleted = false;
+          break;
+        }
+      } catch {
+        allDepsCompleted = false;
+        break;
+      }
+    }
+
+    if (allDepsCompleted) {
+      await swapLabels(task.id, LABEL.STATUS, `${LABEL.STATUS}assigned`);
+      console.log(`  🔓 Unblocked task #${task.id} "${task.title}" — all dependencies completed`);
+    }
+  }
 }
 
 async function addComment(id: number, body: Record<string, unknown>): Promise<unknown> {
@@ -383,9 +428,10 @@ async function assignTask(id: number, body: Record<string, unknown>): Promise<un
   return { ok: true, agent: newAgent };
 }
 
-async function sync(): Promise<unknown> {
-  // 2 API calls total instead of 5 — filter by status label client-side
-  const agentLabels = `${LABEL.TYPE},${LABEL.AGENT}${agent()}`;
+async function sync(query?: URLSearchParams): Promise<unknown> {
+  // If all=true, fetch tasks across all agents (used by Hub and lota-agent skill)
+  const allAgents = query?.get("all") === "true";
+  const agentLabels = allAgents ? LABEL.TYPE : `${LABEL.TYPE},${LABEL.AGENT}${agent()}`;
 
   const [openIssues, completedIssues] = await Promise.all([
     // Call 1: all open tasks for this agent
@@ -415,12 +461,22 @@ async function sync(): Promise<unknown> {
     .filter(i => i.labels.some(l => l.name === `${LABEL.STATUS}blocked`))
     .map(extractFromIssue);
 
+  // Strip body from sync response to reduce token usage — use GET /tasks/:id for full details
+  const slim = (t: Task) => ({ id: t.id, number: t.number, title: t.title, status: t.status, assignee: t.assignee, priority: t.priority, workspace: t.workspace, depends_on: t.depends_on });
+
   const recentlyCompleted = completedIssues.map(issue => ({
-    ...extractFromIssue(issue),
+    ...slim(extractFromIssue(issue)),
     comment_count: issue.comments ?? 0,
   }));
 
-  return { assigned, approved, in_progress: inProgress, failed, blocked, recently_completed: recentlyCompleted };
+  return {
+    assigned: assigned.map(slim),
+    approved: approved.map(slim),
+    in_progress: inProgress.map(t => ({ ...slim(t), comment_count: (t as any).comment_count })),
+    failed: failed.map(t => ({ ...slim(t), comment_count: (t as any).comment_count })),
+    blocked: blocked.map(slim),
+    recently_completed: recentlyCompleted,
+  };
 }
 
 // ── Main dispatcher ─────────────────────────────────────────
@@ -433,7 +489,7 @@ export async function lota(method: string, path: string, body?: Record<string, u
   const endpoint = pathname.replace(/\/tasks\/\d+/, "/tasks/:id");
 
   switch (`${method} ${endpoint}`) {
-    case "GET /sync":              return sync();
+    case "GET /sync":              return sync(query);
     case "GET /tasks":             return getTasks(query);
     case "GET /tasks/:id":         return getTask(id!);
     case "POST /tasks":            return createTask(body!);
