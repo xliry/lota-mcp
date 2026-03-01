@@ -699,7 +699,6 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
     lines.push("  PRIORITY: Read these and respond appropriately.");
     for (const cu of work.commentUpdates) {
       lines.push(`  Task #${cu.id}: "${cu.title}" has ${cu.new_comment_count} new comment(s)`);
-      lines.push(`    → Read them: lota("GET", "/tasks/${cu.id}")`);
       if (cu.workspace) {
         lines.push(`    → Workspace: ${cu.workspace}`);
       }
@@ -734,13 +733,12 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
       "  Do NOT batch changes from other tasks.",
       "",
       "  WORKFLOW for each task:",
-      `    1. Read full details: lota("GET", "/tasks/<id>")`,
-      `    2. Set status to in-progress: lota("POST", "/tasks/<id>/status", {"status": "in-progress"})`,
-      "    3. Explore the codebase to understand what's needed (use Explore subagents)",
-      `    4. Post plan as comment (for audit trail): lota("POST", "/tasks/<id>/comment", {"content": "## Plan\\n- Goal 1\\n- Goal 2\\n..."})`,
-      "    5. Execute the work immediately — do NOT stop and wait for approval",
-      "    6. BEFORE pushing: run `npm run build` (NOT `npx tsc --noEmit` alone). If build fails, fix ALL errors before committing. Never push broken code.",
-      `    7. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
+      `    1. Set status to in-progress: lota("POST", "/tasks/<id>/status", {"status": "in-progress"})`,
+      "    2. Explore the codebase to understand what's needed (use Explore subagents)",
+      `    3. Post plan as comment (for audit trail): lota("POST", "/tasks/<id>/comment", {"content": "## Plan\\n- Goal 1\\n- Goal 2\\n..."})`,
+      "    4. Execute the work immediately — do NOT stop and wait for approval",
+      "    5. BEFORE pushing: run `npm run build` (NOT `npx tsc --noEmit` alone). If build fails, fix ALL errors before committing. Never push broken code.",
+      `    6. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
     );
   }
 
@@ -761,10 +759,9 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
     lines.push(
       "",
       "  WORKFLOW for each task:",
-      `    1. Read full details: lota("GET", "/tasks/<id>")`,
-      "    2. Explore the codebase to understand what's needed (use Explore subagents)",
-      `    3. Create a detailed plan: lota("POST", "/tasks/<id>/plan", {"goals": [...], "affected_files": [...], "effort": "..."})`,
-      `    4. Set status to planned: lota("POST", "/tasks/<id>/status", {"status": "planned"})`,
+      "    1. Explore the codebase to understand what's needed (use Explore subagents)",
+      `    2. Create a detailed plan: lota("POST", "/tasks/<id>/plan", {"goals": [...], "affected_files": [...], "effort": "..."})`,
+      `    3. Set status to planned: lota("POST", "/tasks/<id>/status", {"status": "planned"})`,
       "",
       "  IMPORTANT:",
       "  - Do NOT execute any code changes. Only explore and plan.",
@@ -810,16 +807,11 @@ function buildPrompt(agentName: string, work: WorkData, config: AgentConfig): st
       "  Commit message MUST reference the task: e.g., \"feat: add X (#42)\"",
       "  Do NOT batch changes from other tasks.",
       "",
-      "  IMPORTANT: Read the full task details AND comments (including the plan) first:",
-      `    lota("GET", "/tasks/<id>")`,
-      "  Comments may contain approval notes, adjustments, or extra instructions from the user.",
-      "",
       "  WORKFLOW:",
-      `    1. Read: lota("GET", "/tasks/<id>") — check plan + any user comments`,
-      `    2. Set status: lota("POST", "/tasks/<id>/status", {"status": "in-progress"})`,
-      "    3. Execute the plan. Use subagents for parallel work if needed.",
-      "    4. BEFORE pushing: run `npm run build` (NOT `npx tsc --noEmit` alone). If build fails, fix ALL errors before committing. Never push broken code.",
-      `    5. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
+      `    1. Set status: lota("POST", "/tasks/<id>/status", {"status": "in-progress"})`,
+      "    2. Execute the plan. Use subagents for parallel work if needed.",
+      "    3. BEFORE pushing: run `npm run build` (NOT `npx tsc --noEmit` alone). If build fails, fix ALL errors before committing. Never push broken code.",
+      `    4. Complete: lota("POST", "/tasks/<id>/complete", {"summary": "...", "modified_files": [], "new_files": []})`,
     );
   }
 
