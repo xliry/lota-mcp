@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { err } from "./logging.js";
+import { err, dim } from "./logging.js";
 import type { AgentConfig, WorkData } from "./types.js";
 
 // ── Task body sanitization ───────────────────────────────────────
@@ -24,7 +24,7 @@ export function resolveBuildCmd(workspace?: string): string {
   try {
     const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8"));
     if (pkg.scripts?.build) return "npm run build";
-  } catch {}
+  } catch (e) { dim(`[non-critical] failed to read package.json for build cmd: ${(e as Error).message}`); }
   return "npx tsc";
 }
 

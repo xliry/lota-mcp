@@ -97,7 +97,7 @@ async function recoverOrFailTask(
       : details.workspace;
     if (existsSync(wsPath)) {
       try { cleanStaleWorktrees(wsPath); dim(`  Cleaned stale worktrees for workspace: ${wsPath}`); }
-      catch { /* ignore */ }
+      catch (e) { dim(`[non-critical] stale worktree cleanup failed for ${wsPath}: ${(e as Error).message}`); }
     }
   }
 }

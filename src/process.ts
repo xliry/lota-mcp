@@ -150,7 +150,7 @@ function handlePostCompletion(
         for (const t of work.tasks) {
           lota("POST", `/tasks/${t.id}/comment`, {
             content: `⚠️ **Merge conflict**: Agent completed work on branch \`${worktreeInfo.branch}\` but auto-merge to main failed due to conflicts. Manual review needed.\n\nWorktree preserved at: \`${worktreeInfo.worktreePath}\``,
-          }).catch(() => {});
+          }).catch(e => dim(`Comment failed for task #${t.id}: ${(e as Error).message}`));
         }
       } else {
         err(`Merge/push failed: ${result.output.slice(0, 200)}`);
@@ -173,7 +173,7 @@ function handlePostCompletion(
       for (const t of work.tasks) {
         lota("POST", `/tasks/${t.id}/comment`, {
           content: `⚠️ **Merge conflict**: Agent completed work on branch \`${defaultBranch}\` but auto-merge to main failed due to conflicts. Branch preserved for manual review.`,
-        }).catch(() => {});
+        }).catch(e => dim(`Comment failed for task #${t.id}: ${(e as Error).message}`));
       }
     } else {
       err(`Merge/push failed: ${result.output.slice(0, 200)}`);
@@ -202,11 +202,11 @@ function setupTimeoutHandler(
     for (const taskId of work.tasks.map(t => t.id)) {
       lota("POST", `/tasks/${taskId}/comment`, {
         content: `⚠️ **Agent timeout**: Claude subprocess was killed after ${config.timeout}s without completing. The task will be retried on the next cycle.`,
-      }).catch(() => {});
-      lota("POST", `/tasks/${taskId}/status`, { status: "assigned" }).catch(() => {});
+      }).catch(e => dim(`Comment failed for task #${taskId}: ${(e as Error).message}`));
+      lota("POST", `/tasks/${taskId}/status`, { status: "assigned" }).catch(e => dim(`Status reset failed for task #${taskId}: ${(e as Error).message}`));
     }
     if (worktreeInfo) {
-      try { cleanupWorktree(worktreeInfo.originalWorkspace, config.agentName, worktreeInfo.branch); } catch { /* ignore */ }
+      try { cleanupWorktree(worktreeInfo.originalWorkspace, config.agentName, worktreeInfo.branch); } catch (e) { dim(`[non-critical] worktree cleanup failed: ${(e as Error).message}`); }
     }
     currentProcess = null;
     busy = false;

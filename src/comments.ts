@@ -50,7 +50,7 @@ export function saveCommentBaselines(): void {
           if (!data[idStr] && entry.ts >= cutoff) data[idStr] = entry;
         }
       }
-    } catch { /* ignore read errors */ }
+    } catch (e) { dim(`[non-critical] saveCommentBaselines read failed: ${(e as Error).message}`); }
 
     const tmpFile = BASELINES_FILE + ".tmp";
     writeFileSync(tmpFile, JSON.stringify(data, null, 2));
@@ -139,7 +139,8 @@ export async function checkForWork(config: AgentConfig): Promise<WorkData | null
         try {
           const details = await lota("GET", `/tasks/${t.id}`) as { plan?: { affected_files?: string[]; goals?: string[] } };
           return { ...t, plan: details.plan };
-        } catch {
+        } catch (e) {
+          dim(`[non-critical] failed to fetch plan for task #${t.id}: ${(e as Error).message}`);
           return t;
         }
       })

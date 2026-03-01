@@ -26,7 +26,7 @@ function checkAndCleanStalePid(name: string): void {
     const pid = data.pid;
     if (typeof pid !== "number") {
       dim(`Removing malformed PID file for "${name}"`);
-      try { unlinkSync(pidFile); } catch { /* ignore */ }
+      try { unlinkSync(pidFile); } catch (e) { dim(`[non-critical] failed to remove malformed PID file: ${(e as Error).message}`); }
       return;
     }
     try {
@@ -38,14 +38,14 @@ function checkAndCleanStalePid(name: string): void {
       const code = (killErr as NodeJS.ErrnoException).code;
       if (code === "ESRCH") {
         dim(`Cleaning up stale PID file for "${name}" (PID ${pid} is dead)`);
-        try { unlinkSync(pidFile); } catch { /* ignore */ }
+        try { unlinkSync(pidFile); } catch (e) { dim(`[non-critical] failed to remove stale PID file: ${(e as Error).message}`); }
       } else if (code === "EPERM") {
         log(`⚠️ Agent "${name}" may already be running (PID ${pid}, EPERM)`);
       }
     }
   } catch (e) {
     dim(`[non-critical] Failed to check PID file: ${(e as Error).message}`);
-    try { unlinkSync(pidFile); } catch { /* ignore */ }
+    try { unlinkSync(pidFile); } catch (e) { dim(`[non-critical] failed to remove corrupted PID file: ${(e as Error).message}`); }
   }
 }
 
@@ -301,8 +301,8 @@ async function handleCycleResult(code: number, work: WorkData, elapsed: number, 
     for (const t of work.tasks) {
       lota("POST", `/tasks/${t.id}/comment`, {
         content: `⚠️ Agent crashed (exit code ${code}). Task reset to assigned for retry.`,
-      }).catch(() => {});
-      lota("POST", `/tasks/${t.id}/status`, { status: "assigned" }).catch(() => {});
+      }).catch(e => dim(`Comment failed for task #${t.id}: ${(e as Error).message}`));
+      lota("POST", `/tasks/${t.id}/status`, { status: "assigned" }).catch(e => dim(`Status reset failed for task #${t.id}: ${(e as Error).message}`));
     }
   }
 }
